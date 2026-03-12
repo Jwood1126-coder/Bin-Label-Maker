@@ -4,13 +4,13 @@ Renders the same layout as the PDF renderer but onto a QImage
 for display in the preview panel.
 """
 import logging
-from typing import Optional
 
 from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QImage, QPainter, QColor, QFont, QPixmap, QPen
-from PySide6.QtWidgets import QApplication
+from PySide6.QtGui import (
+    QImage, QPainter, QColor, QFont, QPixmap, QPen, QFontMetricsF,
+)
 
-from src.models.avery_templates import AveryGeometry, AVERY_TEMPLATES
+from src.models.avery_templates import AVERY_TEMPLATES
 from src.models.template import Template
 from src.models.label_data import LabelData
 from src.services.label_layout import LabelLayoutService, CellLayout
@@ -67,7 +67,7 @@ class PreviewRenderer:
                 continue
 
             cell_layout = self.layout.compute_cell_layout(cell_rect)
-            self._draw_label(painter, label, cell_layout, template.qr_base_url, logo_pil)
+            self._draw_label(painter, label, template, cell_layout, logo_pil)
 
         painter.end()
         return QPixmap.fromImage(image)
@@ -76,8 +76,8 @@ class PreviewRenderer:
         self,
         painter: QPainter,
         label: LabelData,
+        template: Template,
         layout: CellLayout,
-        qr_base_url: str,
         logo_pil,
     ) -> None:
         """Draw a single label's content."""
@@ -90,63 +90,102 @@ class PreviewRenderer:
         if logo_pil:
             self._draw_pil_image(painter, logo_pil, layout.logo_rect)
 
-        # QR code
+        # QR code — uses template's qr_base_url
         if label.brennan_part_number:
             qr_pil = self.qr.generate(
                 label.brennan_part_number,
+                base_url=template.qr_base_url,
                 size_px=max(50, int(layout.qr_rect.width * 2)),
             )
             self._draw_pil_image(painter, qr_pil, layout.qr_rect)
 
         # Customer part number (top, left-aligned)
         if label.customer_part_number:
-            fs = self._auto_font_size(label.customer_part_number, layout.customer_pn_rect.width, 8)
-            painter.setFont(QFont("Helvetica", fs))
-            painter.setPen(QColor(0, 0, 0))
-            painter.drawText(
-                QRectF(layout.customer_pn_rect.x, layout.customer_pn_rect.y,
-                       layout.customer_pn_rect.width, layout.customer_pn_rect.height),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                label.customer_part_number,
+            self._draw_clipped_text(
+                painter, label.customer_part_number,
+                QFont("Helvetica"), 8,
+                layout.customer_pn_rect,
+                QColor(0, 0, 0),
             )
 
         # Brennan part number (bold, left-aligned)
         if label.brennan_part_number:
-            fs = self._auto_font_size(label.brennan_part_number, layout.brennan_pn_rect.width, 14)
-            font = QFont("Helvetica", fs)
+            font = QFont("Helvetica")
             font.setBold(True)
-            painter.setFont(font)
-            painter.setPen(QColor(0, 0, 0))
-            painter.drawText(
-                QRectF(layout.brennan_pn_rect.x, layout.brennan_pn_rect.y,
-                       layout.brennan_pn_rect.width, layout.brennan_pn_rect.height),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                label.brennan_part_number,
+            self._draw_clipped_text(
+                painter, label.brennan_part_number,
+                font, 14,
+                layout.brennan_pn_rect,
+                QColor(0, 0, 0),
             )
 
-        # Description (left-aligned, small)
-        if label.description:
-            fs = self._auto_font_size(label.description, layout.description_rect.width, 6)
-            painter.setFont(QFont("Helvetica", fs))
-            painter.setPen(QColor(80, 80, 80))
-            painter.drawText(
-                QRectF(layout.description_rect.x, layout.description_rect.y,
-                       layout.description_rect.width, layout.description_rect.height),
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                label.description,
+        # Description (left-aligned, small) — respects description mode
+        display_desc = label.get_display_description(template.description_mode)
+        if display_desc:
+            self._draw_clipped_text(
+                painter, display_desc,
+                QFont("Helvetica"), 6,
+                layout.description_rect,
+                QColor(80, 80, 80),
             )
+
+    def _draw_clipped_text(
+        self,
+        painter: QPainter,
+        text: str,
+        base_font: QFont,
+        max_size: float,
+        rect,
+        color: QColor,
+    ) -> None:
+        """Draw text auto-sized to fit, clipped to rect boundary."""
+        fs = self._auto_font_size(text, base_font, rect.width, max_size)
+        font = QFont(base_font)
+        font.setPointSizeF(fs)
+        painter.setFont(font)
+        painter.setPen(color)
+
+        # Clip to the rect so text never bleeds outside the label
+        painter.save()
+        target = QRectF(rect.x, rect.y, rect.width, rect.height)
+        painter.setClipRect(target)
+        painter.drawText(
+            target,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+            text,
+        )
+        painter.restore()
 
     def _draw_pil_image(self, painter: QPainter, pil_img, rect) -> None:
         """Draw a PIL Image into the given rect area."""
-        scaled = scale_image_to_fit(pil_img, int(rect.width * 2), int(rect.height * 2))
+        scaled = scale_image_to_fit(
+            pil_img, int(rect.width * 2), int(rect.height * 2)
+        )
         data = image_to_bytes(scaled, "PNG")
         qimg = QImage()
         qimg.loadFromData(data)
         target = QRectF(rect.x, rect.y, rect.width, rect.height)
         painter.drawImage(target, qimg)
 
-    def _auto_font_size(self, text: str, max_width: float, max_size: float = 12) -> float:
+    def _auto_font_size(
+        self,
+        text: str,
+        base_font: QFont,
+        max_width: float,
+        max_size: float = 12,
+    ) -> float:
+        """Compute the largest font size that fits text within max_width.
+
+        Uses QFontMetricsF for accurate glyph-based measurement.
+        """
         if not text:
             return max_size
-        needed = max_width / (len(text) * 0.6)
-        return max(4.0, min(max_size, needed))
+        size = max_size
+        font = QFont(base_font)
+        while size > 4.0:
+            font.setPointSizeF(size)
+            fm = QFontMetricsF(font)
+            if fm.horizontalAdvance(text) <= max_width:
+                return size
+            size -= 0.5
+        return 4.0

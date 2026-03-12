@@ -40,7 +40,7 @@ def _create_data_source():
 def create_application() -> MainWindow:
     """Wire all dependencies and return the main window."""
     # Services
-    qr_generator = QRGenerator(base_url="https://brennaninc.com/parts/")
+    qr_generator = QRGenerator(base_url="https://brennaninc.com/")
     layout_service = LabelLayoutService()
     pdf_renderer = PDFRenderer(layout_service, qr_generator)
     preview_renderer = PreviewRenderer(layout_service, qr_generator)

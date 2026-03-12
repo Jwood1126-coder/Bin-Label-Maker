@@ -220,16 +220,18 @@ QComboBox:focus {{
 }}
 
 QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
     border: none;
     width: 24px;
 }}
 
 QComboBox::down-arrow {{
-    image: none;
+    width: 10px;
+    height: 6px;
     border-left: 5px solid transparent;
     border-right: 5px solid transparent;
     border-top: 6px solid {BRENNAN_BLUE};
-    margin-right: 6px;
 }}
 
 QComboBox QAbstractItemView {{

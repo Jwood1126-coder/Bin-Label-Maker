@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QPushButton, QLabel, QFrame,
 )
 from PySide6.QtCore import Qt, QTimer, QRectF
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtGui import QWheelEvent, QPainter
 from src.views.theme import BRENNAN_WHITE
 
 
@@ -15,12 +15,24 @@ _PREVIEW_SCALE = 2.0
 class ZoomableGraphicsView(QGraphicsView):
     """QGraphicsView with mouse wheel zoom support."""
 
+    def __init__(self, scene):
+        super().__init__(scene)
+        self._user_zoomed = False
+
     def wheelEvent(self, event: QWheelEvent) -> None:
+        self._user_zoomed = True
         factor = 1.15
         if event.angleDelta().y() > 0:
             self.scale(factor, factor)
         else:
             self.scale(1 / factor, 1 / factor)
+
+    def reset_user_zoom(self) -> None:
+        self._user_zoomed = False
+
+    @property
+    def user_zoomed(self) -> bool:
+        return self._user_zoomed
 
 
 class PreviewPanel(QWidget):
@@ -55,19 +67,21 @@ class PreviewPanel(QWidget):
         self._page_label.setStyleSheet("font-weight: 500; font-size: 12px;")
         ctrl_row.addWidget(self._page_label)
 
-        self._prev_btn = QPushButton("<")
-        self._prev_btn.setFixedSize(28, 28)
+        self._prev_btn = QPushButton("\u25C0")
+        self._prev_btn.setFixedHeight(28)
+        self._prev_btn.setToolTip("Previous page")
         self._prev_btn.clicked.connect(self._prev_page)
         ctrl_row.addWidget(self._prev_btn)
 
-        self._next_btn = QPushButton(">")
-        self._next_btn.setFixedSize(28, 28)
+        self._next_btn = QPushButton("\u25B6")
+        self._next_btn.setFixedHeight(28)
+        self._next_btn.setToolTip("Next page")
         self._next_btn.clicked.connect(self._next_page)
         ctrl_row.addWidget(self._next_btn)
 
         self._fit_btn = QPushButton("Fit Page")
-        self._fit_btn.setFixedWidth(60)
         self._fit_btn.setProperty("cssClass", "secondary")
+        self._fit_btn.setToolTip("Reset zoom to fit the full page (scroll wheel to zoom)")
         self._fit_btn.clicked.connect(self._fit_to_view)
         ctrl_row.addWidget(self._fit_btn)
 
@@ -77,9 +91,12 @@ class PreviewPanel(QWidget):
         self._scene = QGraphicsScene()
         self._view = ZoomableGraphicsView(self._scene)
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
-        self._view.setRenderHint(self._view.renderHints())
+        self._view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        self._view.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         self._view.setStyleSheet("border-radius: 0 0 4px 4px;")
-        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self._view.setTransformationAnchor(
+            QGraphicsView.ViewportAnchor.AnchorUnderMouse
+        )
         layout.addWidget(self._view)
 
         self._current_page = 0
@@ -140,8 +157,6 @@ class PreviewPanel(QWidget):
         # Convert from points to preview pixels (preview renders at 2x scale)
         rect = QRectF(
             pos.x * _PREVIEW_SCALE,
-            # Preview image is top-down; convert from ReportLab bottom-left origin
-            # The preview renderer already handles this, so use the rect as-is
             pos.y * _PREVIEW_SCALE,
             pos.width * _PREVIEW_SCALE,
             pos.height * _PREVIEW_SCALE,
@@ -150,6 +165,7 @@ class PreviewPanel(QWidget):
         pad = rect.width() * 0.15
         rect.adjust(-pad, -pad, pad, pad)
 
+        self._view.reset_user_zoom()
         self._view.resetTransform()
         self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -162,8 +178,11 @@ class PreviewPanel(QWidget):
             self._fit_to_view()
 
     def _fit_to_view(self) -> None:
+        self._view.reset_user_zoom()
         self._view.resetTransform()
-        self._view.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        self._view.fitInView(
+            self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio
+        )
 
     def _prev_page(self) -> None:
         if self._current_page > 0:
@@ -178,9 +197,12 @@ class PreviewPanel(QWidget):
             self._do_render()
 
     def _update_page_label(self) -> None:
-        self._page_label.setText(f"Page {self._current_page + 1} of {self._total_pages}")
+        self._page_label.setText(
+            f"Page {self._current_page + 1} of {self._total_pages}"
+        )
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        if self._scene.items():
+        # Only auto-fit on resize if the user hasn't manually zoomed
+        if self._scene.items() and not self._view.user_zoomed:
             self._fit_to_view()

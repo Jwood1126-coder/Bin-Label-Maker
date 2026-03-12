@@ -29,6 +29,10 @@ XREF_MANUFACTURERS = {
     "Airway": "airway_part_number",
 }
 
+# Description mode options
+DESC_MODE_FULL = "full"
+DESC_MODE_SHORT = "short"
+
 
 @dataclass
 class Template:
@@ -36,9 +40,9 @@ class Template:
     customer_name: str = ""
     avery_template_id: str = DEFAULT_TEMPLATE_ID
     logo_path: Optional[str] = None
-    qr_base_url: str = "https://brennaninc.com/parts/"
+    qr_base_url: str = "https://brennaninc.com/"
     xref_key: str = ""  # Catsy attribute key for customer part number mapping
-    description_limit: int = 0  # max chars for description (0 = unlimited)
+    description_mode: str = DESC_MODE_FULL  # "full" or "short"
     labels: list[LabelData] = field(default_factory=list)
     start_offset: int = 0
 
@@ -49,7 +53,7 @@ class Template:
             "logo_path": self.logo_path,
             "qr_base_url": self.qr_base_url,
             "xref_key": self.xref_key,
-            "description_limit": self.description_limit,
+            "description_mode": self.description_mode,
             "start_offset": self.start_offset,
             "labels": [label.to_dict() for label in self.labels],
         }
@@ -61,9 +65,9 @@ class Template:
             customer_name=data.get("customer_name", ""),
             avery_template_id=data.get("avery_template_id", DEFAULT_TEMPLATE_ID),
             logo_path=data.get("logo_path"),
-            qr_base_url=data.get("qr_base_url", "https://brennaninc.com/parts/"),
+            qr_base_url=data.get("qr_base_url", "https://brennaninc.com/"),
             xref_key=data.get("xref_key", ""),
-            description_limit=data.get("description_limit", 0),
+            description_mode=data.get("description_mode", DESC_MODE_FULL),
             start_offset=data.get("start_offset", 0),
             labels=labels,
         )

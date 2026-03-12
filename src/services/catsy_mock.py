@@ -7,35 +7,14 @@ from src.services.data_source import (
 
 # Sample catalog of Brennan hydraulic fittings
 _SAMPLE_PARTS = [
-    {"brennan_part_number": "2404-04-02", "customer_part_number": "2021-2-4S", "description": "04MJ-02MP Straight"},
-    {"brennan_part_number": "2404-04-04", "customer_part_number": "2021-4-4S", "description": "04MJ-04MP Straight"},
-    {"brennan_part_number": "2404-06-04", "customer_part_number": "2021-4-6S", "description": "06MJ-04MP Straight"},
-    {"brennan_part_number": "2404-04-06", "customer_part_number": "2021-6-4S", "description": "04MJ-06MP Straight"},
-    {"brennan_part_number": "2404-06-06", "customer_part_number": "2021-6-6S", "description": "06MJ-06MP Straight"},
-    {"brennan_part_number": "2404-06-08", "customer_part_number": "2021-8-6S", "description": "06MJ-08MP Straight"},
-    {"brennan_part_number": "2404-08-08", "customer_part_number": "2021-8-8S", "description": "08MJ-08MP Straight"},
-    {"brennan_part_number": "2404-10-08", "customer_part_number": "2021-8-10S", "description": "10MJ-08MP Straight"},
-    {"brennan_part_number": "2404-12-08", "customer_part_number": "2021-8-12S", "description": "12MJ-08MP Straight"},
-    {"brennan_part_number": "2404-06-12", "customer_part_number": "2021-12-6S", "description": "06MJ-12MP Straight"},
-    {"brennan_part_number": "2404-10-12", "customer_part_number": "2021-12-10S", "description": "10MJ-12MP Straight"},
-    {"brennan_part_number": "2404-12-12", "customer_part_number": "2021-12-12S", "description": "12MJ-12MP Straight"},
-    {"brennan_part_number": "2404-12-16", "customer_part_number": "2021-16-12S", "description": "12MJ-16MP Straight"},
-    {"brennan_part_number": "2404-16-16", "customer_part_number": "2021-16-16S", "description": "16MJ-16MP Straight"},
-    {"brennan_part_number": "2404-16-20", "customer_part_number": "2021-20-16S", "description": "16MJ-20MP Straight"},
-    {"brennan_part_number": "2404-20-20", "customer_part_number": "2021-20-20S", "description": "20MJ-20MP Straight"},
-    {"brennan_part_number": "2404-24-24", "customer_part_number": "2021-24-24S", "description": "24MJ-24MP Straight"},
-    {"brennan_part_number": "2404-32-32", "customer_part_number": "2021-32-32S", "description": "32MJ-32MP Straight"},
-    {"brennan_part_number": "2404-08-12", "customer_part_number": "2021-12-8S", "description": "08MJ-12MP Straight"},
-    {"brennan_part_number": "2404-20-16", "customer_part_number": "2021-16-20S", "description": "20MJ-16MP Straight"},
-    {"brennan_part_number": "2404-24-20", "customer_part_number": "2021-20-24S", "description": "24MJ-20MP Straight"},
-    {"brennan_part_number": "2404-16-12", "customer_part_number": "2021-12-16S", "description": "16MJ-12MP Straight"},
-    {"brennan_part_number": "2408-04", "customer_part_number": "900599-4S", "description": "04MJ Plug"},
-    {"brennan_part_number": "2408-06", "customer_part_number": "900599-6S", "description": "06MJ Plug"},
-    {"brennan_part_number": "2408-08", "customer_part_number": "900599-8S", "description": "08MJ Plug"},
-    {"brennan_part_number": "2408-10", "customer_part_number": "900599-10S", "description": "10MJ Plug"},
-    {"brennan_part_number": "2408-12", "customer_part_number": "900599-12S", "description": "12MJ Plug"},
-    {"brennan_part_number": "2408-16", "customer_part_number": "900599-16S", "description": "16MJ Plug"},
-    {"brennan_part_number": "2408-20", "customer_part_number": "900599-20S", "description": "20MJ Plug"},
+    {"brennan_part_number": "2404-04-02", "description": "Steel, SAE J514 37° Flare Male Connector, 1/4\" Male JIC x 1/8\" Male NPTF 30°", "short_description": "04MJ x 02MP Steel", "series": "2404", "material": "Steel", "xrefs": {"aeroquip_part_number": "2021-2-4S"}, "image_url": None},
+    {"brennan_part_number": "2404-04-04", "description": "Steel, SAE J514 37° Flare Male Connector, 1/4\" Male JIC x 1/4\" Male NPTF 30°", "short_description": "04MJ x 04MP Steel", "series": "2404", "material": "Steel", "xrefs": {"aeroquip_part_number": "2021-4-4S"}, "image_url": None},
+    {"brennan_part_number": "2404-06-04", "description": "Steel, SAE J514 37° Flare Male Connector, 3/8\" Male JIC x 1/4\" Male NPTF 30°", "short_description": "06MJ x 04MP Steel", "series": "2404", "material": "Steel", "xrefs": {"aeroquip_part_number": "2021-4-6S"}, "image_url": None},
+    {"brennan_part_number": "2404-06-06", "description": "Steel, SAE J514 37° Flare Male Connector, 3/8\" Male JIC x 3/8\" Male NPTF 30°", "short_description": "06MJ x 06MP Steel", "series": "2404", "material": "Steel", "xrefs": {"aeroquip_part_number": "2021-6-6S"}, "image_url": None},
+    {"brennan_part_number": "2404-08-08", "description": "Steel, SAE J514 37° Flare Male Connector, 1/2\" Male JIC x 1/2\" Male NPTF 30°", "short_description": "08MJ x 08MP Steel", "series": "2404", "material": "Steel", "xrefs": {"aeroquip_part_number": "2021-8-8S"}, "image_url": None},
+    {"brennan_part_number": "2408-04", "description": "Steel, SAE J514 37° Flare Plug, 1/4\" Male JIC", "short_description": "04MJ Plug Steel", "series": "2408", "material": "Steel", "xrefs": {"aeroquip_part_number": "900599-4S"}, "image_url": None},
+    {"brennan_part_number": "2408-06", "description": "Steel, SAE J514 37° Flare Plug, 3/8\" Male JIC", "short_description": "06MJ Plug Steel", "series": "2408", "material": "Steel", "xrefs": {"aeroquip_part_number": "900599-6S"}, "image_url": None},
+    {"brennan_part_number": "2408-08", "description": "Steel, SAE J514 37° Flare Plug, 1/2\" Male JIC", "short_description": "08MJ Plug Steel", "series": "2408", "material": "Steel", "xrefs": {"aeroquip_part_number": "900599-8S"}, "image_url": None},
 ]
 
 
@@ -55,15 +34,15 @@ class MockCatsyService(DataSource):
                     results.append(p)
             else:  # contains
                 if (query_lower in pn
-                        or query_lower in p["customer_part_number"].lower()
-                        or query_lower in p["description"].lower()):
+                        or query_lower in p.get("description", "").lower()
+                        or query_lower in p.get("short_description", "").lower()):
                     results.append(p)
         return results
 
     def get_part_details(self, part_number: str) -> Optional[dict]:
         for p in _SAMPLE_PARTS:
             if p["brennan_part_number"] == part_number:
-                return {**p, "image_url": None}
+                return p
         return None
 
     def get_part_image(self, part_number: str) -> Optional[bytes]:

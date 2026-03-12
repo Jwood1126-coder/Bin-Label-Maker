@@ -162,7 +162,8 @@ class LiveCatsyService(DataSource):
 
         # Full description includes material + sizes (best for bin labels)
         # e.g. "Steel, SAE J1453 O-Ring Face Seal Male Connector, 1/4" Male ORFS x 1/8" Male NPTF 30°"
-        description = p.get("description") or p.get("short_description") or ""
+        description = p.get("description") or ""
+        short_description = p.get("short_description") or ""
 
         # Collect all cross-reference part numbers
         xrefs = {}
@@ -175,7 +176,7 @@ class LiveCatsyService(DataSource):
             "brennan_part_number": p.get("number", ""),
             "customer_part_number": "",  # filled by caller based on xref_key selection
             "description": description,
-            "full_description": p.get("description", ""),
+            "short_description": short_description,
             "series": ", ".join(p.get("series", []) or []),
             "shape_type": p.get("shape_type", ""),
             "material": p.get("primary_material", ""),

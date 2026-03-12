@@ -8,10 +8,8 @@ from typing import Optional
 
 from src.models.label_data import LabelData
 from src.models.template import Template
-from src.models.avery_templates import AVERY_TEMPLATES, DEFAULT_TEMPLATE_ID
+from src.models.avery_templates import AVERY_TEMPLATES
 from src.services.pdf_renderer import PDFRenderer
-from src.services.qr_generator import QRGenerator
-from src.services.label_layout import LabelLayoutService
 from src.services.template_io import TemplateIO
 from src.services.data_source import DataSource
 
@@ -34,11 +32,19 @@ class LabelPresenter:
         self._default_logo_path = default_logo_path
         self.template = Template()
         self._current_index: int = -1
+        self._dirty: bool = False  # tracks unsaved changes
         self._view = None  # set by main_window after construction
 
     def set_view(self, view) -> None:
         """Called by MainWindow to register the view interface."""
         self._view = view
+
+    @property
+    def is_dirty(self) -> bool:
+        return self._dirty
+
+    def mark_clean(self) -> None:
+        self._dirty = False
 
     @property
     def current_label(self) -> Optional[LabelData]:
@@ -53,6 +59,7 @@ class LabelPresenter:
         if self._default_logo_path:
             self.template.logo_path = self._default_logo_path
         self._current_index = -1
+        self._dirty = False
         self._notify_template_changed()
 
     def load_template(self, file_path: str) -> None:
@@ -69,6 +76,7 @@ class LabelPresenter:
     def save_template(self, file_path: str) -> None:
         try:
             self.template_io.save(self.template, file_path)
+            self._dirty = False
             logger.info("Saved template to %s", file_path)
         except Exception as e:
             logger.error("Failed to save template: %s", e)
@@ -89,30 +97,37 @@ class LabelPresenter:
     def set_avery_template(self, template_id: str) -> None:
         if template_id in AVERY_TEMPLATES:
             self.template.avery_template_id = template_id
+            self._dirty = True
             self._notify_preview_update()
 
     # --- Template metadata ---
 
     def set_customer_name(self, name: str) -> None:
         self.template.customer_name = name
+        self._dirty = True
 
     def set_qr_base_url(self, url: str) -> None:
         self.template.qr_base_url = url
+        self._dirty = True
         self._notify_preview_update()
 
     def set_logo_path(self, path: Optional[str]) -> None:
         self.template.logo_path = path
+        self._dirty = True
         self._notify_preview_update()
 
     def set_xref_key(self, xref_key: str) -> None:
         self.template.xref_key = xref_key
+        self._dirty = True
 
-    def set_description_limit(self, limit: int) -> None:
-        self.template.description_limit = limit
-        self._notify_preview_update()
+    def set_description_mode(self, mode: str) -> None:
+        self.template.description_mode = mode
+        self._dirty = True
+        self._notify_list_changed()
 
     def set_start_offset(self, offset: int) -> None:
         self.template.start_offset = max(0, offset)
+        self._dirty = True
         self._notify_preview_update()
 
     # --- Label list operations ---
@@ -121,6 +136,7 @@ class LabelPresenter:
         label = LabelData()
         self.template.labels.append(label)
         self._current_index = len(self.template.labels) - 1
+        self._dirty = True
         self._notify_list_changed()
         self._notify_label_selected()
 
@@ -129,6 +145,7 @@ class LabelPresenter:
             self.template.labels.pop(index)
             if self._current_index >= len(self.template.labels):
                 self._current_index = len(self.template.labels) - 1
+            self._dirty = True
             self._notify_list_changed()
             self._notify_label_selected()
 
@@ -139,12 +156,32 @@ class LabelPresenter:
                 brennan_part_number=source.brennan_part_number,
                 customer_part_number=source.customer_part_number,
                 description=source.description,
+                short_description=source.short_description,
                 image_path=source.image_path,
             )
             self.template.labels.insert(index + 1, copy)
             self._current_index = index + 1
+            self._dirty = True
             self._notify_list_changed()
             self._notify_label_selected()
+
+    def add_labels(self, labels: list) -> None:
+        """Add multiple labels at once (from bulk search, CSV import, etc.)."""
+        if not labels:
+            return
+        for label in labels:
+            self.template.labels.append(label)
+        self._current_index = len(self.template.labels) - 1
+        self._dirty = True
+        self._notify_list_changed()
+        self._notify_label_selected()
+
+    def apply_template(self, template) -> None:
+        """Replace the current template entirely (for project load / import)."""
+        self.template = template
+        self._current_index = 0 if template.labels else -1
+        self._dirty = False
+        self._notify_template_changed()
 
     def fill_sheet(self) -> None:
         """Fill remaining label slots on the current page with copies of selected label."""
@@ -161,8 +198,10 @@ class LabelPresenter:
                 brennan_part_number=source.brennan_part_number,
                 customer_part_number=source.customer_part_number,
                 description=source.description,
+                short_description=source.short_description,
                 image_path=source.image_path,
             ))
+        self._dirty = True
         self._notify_list_changed()
 
     def select_label(self, index: int) -> None:
@@ -171,43 +210,27 @@ class LabelPresenter:
 
     # --- Label editing ---
 
-    def update_current_label(
-        self,
-        brennan_pn: str = None,
-        customer_pn: str = None,
-        description: str = None,
-        image_path: str = None,
-    ) -> None:
-        label = self.current_label
-        if not label:
-            return
-        if brennan_pn is not None:
-            label.brennan_part_number = brennan_pn
-        if customer_pn is not None:
-            label.customer_part_number = customer_pn
-        if description is not None:
-            label.description = description
-        if image_path is not None:
-            label.image_path = image_path
-        self._notify_list_changed()
+    def update_label_field(self, index: int, field: str, value: str) -> None:
+        """Update a single field on a label by index."""
+        if 0 <= index < len(self.template.labels):
+            label = self.template.labels[index]
+            if field == "brennan_pn":
+                label.brennan_part_number = value
+            elif field == "customer_pn":
+                label.customer_part_number = value
+            elif field == "description":
+                if self.template.description_mode == "short":
+                    label.short_description = value
+                else:
+                    label.description = value
+            self._dirty = True
+            self._notify_preview_update()
 
     # --- Catsy lookup ---
 
     def lookup_part(self, query: str) -> list:
         """Search for parts via the data source. Returns list of result dicts."""
         return self.data_source.search_parts(query)
-
-    def fill_from_lookup(self, part_data: dict, image_path: Optional[str] = None) -> None:
-        """Auto-fill current label from a looked-up part dict."""
-        if not self.current_label:
-            return
-        self.current_label.brennan_part_number = part_data.get("brennan_part_number", "")
-        self.current_label.customer_part_number = part_data.get("customer_part_number", "")
-        self.current_label.description = part_data.get("description", "")
-        if image_path:
-            self.current_label.image_path = image_path
-        self._notify_label_selected()
-        self._notify_list_changed()
 
     # --- View notifications ---
 

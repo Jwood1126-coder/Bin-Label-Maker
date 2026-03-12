@@ -3,8 +3,24 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QGraphicsView, QGraphicsScene,
     QHBoxLayout, QPushButton, QLabel, QFrame,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QRectF
+from PySide6.QtGui import QWheelEvent
 from src.views.theme import BRENNAN_WHITE
+
+
+# Preview renders at 2x scale
+_PREVIEW_SCALE = 2.0
+
+
+class ZoomableGraphicsView(QGraphicsView):
+    """QGraphicsView with mouse wheel zoom support."""
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        factor = 1.15
+        if event.angleDelta().y() > 0:
+            self.scale(factor, factor)
+        else:
+            self.scale(1 / factor, 1 / factor)
 
 
 class PreviewPanel(QWidget):
@@ -49,25 +65,30 @@ class PreviewPanel(QWidget):
         self._next_btn.clicked.connect(self._next_page)
         ctrl_row.addWidget(self._next_btn)
 
-        self._fit_btn = QPushButton("Fit")
-        self._fit_btn.setFixedWidth(50)
+        self._fit_btn = QPushButton("Fit Page")
+        self._fit_btn.setFixedWidth(60)
         self._fit_btn.setProperty("cssClass", "secondary")
         self._fit_btn.clicked.connect(self._fit_to_view)
         ctrl_row.addWidget(self._fit_btn)
 
         layout.addWidget(ctrl_bar)
 
-        # Graphics view
+        # Graphics view with scroll-wheel zoom
         self._scene = QGraphicsScene()
-        self._view = QGraphicsView(self._scene)
+        self._view = ZoomableGraphicsView(self._scene)
         self._view.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
         self._view.setRenderHint(self._view.renderHints())
         self._view.setStyleSheet("border-radius: 0 0 4px 4px;")
+        self._view.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         layout.addWidget(self._view)
 
         self._current_page = 0
         self._total_pages = 1
         self._render_callback = None
+        # Stores label grid positions (from the layout engine) for zoom-to-label
+        self._label_positions = None  # set externally
+        self._per_page = 0
+        self._start_offset = 0
 
         # Debounce timer for preview updates
         self._debounce_timer = QTimer()
@@ -78,6 +99,15 @@ class PreviewPanel(QWidget):
     def set_render_callback(self, callback) -> None:
         self._render_callback = callback
 
+    def set_label_grid(self, positions, per_page: int, start_offset: int) -> None:
+        """Set the label grid positions for zoom-to-label support.
+
+        positions: list of Rect from LabelLayoutService.compute_label_positions()
+        """
+        self._label_positions = positions
+        self._per_page = per_page
+        self._start_offset = start_offset
+
     def set_total_pages(self, total: int) -> None:
         self._total_pages = max(1, total)
         if self._current_page >= self._total_pages:
@@ -86,6 +116,42 @@ class PreviewPanel(QWidget):
 
     def request_update(self) -> None:
         self._debounce_timer.start()
+
+    def zoom_to_label(self, label_index: int) -> None:
+        """Zoom the preview to show a specific label enlarged."""
+        if not self._label_positions or self._per_page <= 0:
+            return
+
+        # Figure out which page and slot this label occupies
+        slot_index = label_index + self._start_offset
+        page = slot_index // self._per_page
+        page_slot = slot_index % self._per_page
+
+        # Switch page if needed
+        if page != self._current_page:
+            self._current_page = page
+            self._update_page_label()
+            self._do_render()
+
+        if page_slot >= len(self._label_positions):
+            return
+
+        pos = self._label_positions[page_slot]
+        # Convert from points to preview pixels (preview renders at 2x scale)
+        rect = QRectF(
+            pos.x * _PREVIEW_SCALE,
+            # Preview image is top-down; convert from ReportLab bottom-left origin
+            # The preview renderer already handles this, so use the rect as-is
+            pos.y * _PREVIEW_SCALE,
+            pos.width * _PREVIEW_SCALE,
+            pos.height * _PREVIEW_SCALE,
+        )
+        # Add some padding around the label
+        pad = rect.width() * 0.15
+        rect.adjust(-pad, -pad, pad, pad)
+
+        self._view.resetTransform()
+        self._view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
 
     def _do_render(self) -> None:
         if self._render_callback:
@@ -96,6 +162,7 @@ class PreviewPanel(QWidget):
             self._fit_to_view()
 
     def _fit_to_view(self) -> None:
+        self._view.resetTransform()
         self._view.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def _prev_page(self) -> None:

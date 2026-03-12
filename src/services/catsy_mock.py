@@ -1,7 +1,9 @@
 """Mock DataSource with sample Brennan fittings data for development."""
 from typing import List, Optional
 
-from src.services.data_source import DataSource
+from src.services.data_source import (
+    DataSource, SEARCH_CONTAINS, SEARCH_EXACT, SEARCH_STARTS_WITH,
+)
 
 # Sample catalog of Brennan hydraulic fittings
 _SAMPLE_PARTS = [
@@ -38,19 +40,25 @@ _SAMPLE_PARTS = [
 
 
 class MockCatsyService(DataSource):
-    """Mock implementation for development and testing.
+    """Mock implementation for development and testing."""
 
-    Replace with LiveCatsyService when API credentials are available.
-    """
-
-    def search_parts(self, query: str) -> List[dict]:
+    def search_parts(self, query: str, mode: str = SEARCH_CONTAINS) -> List[dict]:
         query_lower = query.lower()
-        return [
-            p for p in _SAMPLE_PARTS
-            if query_lower in p["brennan_part_number"].lower()
-            or query_lower in p["customer_part_number"].lower()
-            or query_lower in p["description"].lower()
-        ]
+        results = []
+        for p in _SAMPLE_PARTS:
+            pn = p["brennan_part_number"].lower()
+            if mode == SEARCH_EXACT:
+                if pn == query_lower:
+                    results.append(p)
+            elif mode == SEARCH_STARTS_WITH:
+                if pn.startswith(query_lower):
+                    results.append(p)
+            else:  # contains
+                if (query_lower in pn
+                        or query_lower in p["customer_part_number"].lower()
+                        or query_lower in p["description"].lower()):
+                    results.append(p)
+        return results
 
     def get_part_details(self, part_number: str) -> Optional[dict]:
         for p in _SAMPLE_PARTS:
@@ -59,5 +67,4 @@ class MockCatsyService(DataSource):
         return None
 
     def get_part_image(self, part_number: str) -> Optional[bytes]:
-        # No images in mock — return None
         return None

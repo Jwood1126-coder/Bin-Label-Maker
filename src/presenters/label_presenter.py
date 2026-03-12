@@ -104,6 +104,13 @@ class LabelPresenter:
         self.template.logo_path = path
         self._notify_preview_update()
 
+    def set_xref_key(self, xref_key: str) -> None:
+        self.template.xref_key = xref_key
+
+    def set_description_limit(self, limit: int) -> None:
+        self.template.description_limit = limit
+        self._notify_preview_update()
+
     def set_start_offset(self, offset: int) -> None:
         self.template.start_offset = max(0, offset)
         self._notify_preview_update()
@@ -190,15 +197,17 @@ class LabelPresenter:
         """Search for parts via the data source. Returns list of result dicts."""
         return self.data_source.search_parts(query)
 
-    def fill_from_lookup(self, part_number: str) -> None:
-        """Auto-fill current label from data source lookup."""
-        details = self.data_source.get_part_details(part_number)
-        if details and self.current_label:
-            self.current_label.brennan_part_number = details.get("brennan_part_number", "")
-            self.current_label.customer_part_number = details.get("customer_part_number", "")
-            self.current_label.description = details.get("description", "")
-            self._notify_label_selected()
-            self._notify_list_changed()
+    def fill_from_lookup(self, part_data: dict, image_path: Optional[str] = None) -> None:
+        """Auto-fill current label from a looked-up part dict."""
+        if not self.current_label:
+            return
+        self.current_label.brennan_part_number = part_data.get("brennan_part_number", "")
+        self.current_label.customer_part_number = part_data.get("customer_part_number", "")
+        self.current_label.description = part_data.get("description", "")
+        if image_path:
+            self.current_label.image_path = image_path
+        self._notify_label_selected()
+        self._notify_list_changed()
 
     # --- View notifications ---
 

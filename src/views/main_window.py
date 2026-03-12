@@ -4,14 +4,14 @@ from typing import Optional, List
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
-    QFileDialog, QMessageBox, QLabel, QLineEdit,
+    QFileDialog, QMessageBox, QLabel, QLineEdit, QApplication,
     QFormLayout, QPushButton, QStatusBar, QGroupBox, QComboBox,
     QInputDialog, QSizePolicy, QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QPixmap
 
-from src.models.template import Template
+from src.models.template import Template, XREF_MANUFACTURERS
 from src.models.label_data import LabelData
 from src.models.avery_templates import AVERY_TEMPLATES
 from src.presenters.main_presenter import MainPresenter
@@ -25,6 +25,7 @@ from src.views.preview_panel import PreviewPanel
 from src.views.bulk_search_dialog import BulkSearchDialog
 from src.views.theme import logo_full_path, BRENNAN_BLUE, BRENNAN_WHITE
 from src.services.csv_importer import import_labels_from_file
+from src.services.image_utils import download_image
 
 
 class MainWindow(QMainWindow):
@@ -149,58 +150,58 @@ class MainWindow(QMainWindow):
 
         # Left panel: project bar + template settings + label list + editor
         left_panel = QWidget()
-        left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        left_panel.setMinimumWidth(380)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 4, 0)
-        left_layout.setSpacing(6)
+        left_layout.setSpacing(4)
 
-        # ---- Project bar ----
+        # ---- Project bar (compact row) ----
         project_group = QGroupBox("Customer Project")
         project_layout = QVBoxLayout(project_group)
-        project_layout.setSpacing(6)
+        project_layout.setContentsMargins(8, 12, 8, 8)
+        project_layout.setSpacing(4)
 
         proj_sel_row = QHBoxLayout()
+        proj_sel_row.setSpacing(4)
         self._project_combo = QComboBox()
         self._project_combo.setEditable(True)
-        self._project_combo.setPlaceholderText("Type customer name or select...")
+        self._project_combo.setPlaceholderText("Customer name...")
         self._project_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self._refresh_project_list()
         proj_sel_row.addWidget(self._project_combo, 1)
 
         save_btn = QPushButton("Save")
-        save_btn.setFixedWidth(60)
+        save_btn.setFixedWidth(50)
         save_btn.clicked.connect(self._on_project_save)
         proj_sel_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load")
-        load_btn.setFixedWidth(60)
+        load_btn.setFixedWidth(50)
         load_btn.setProperty("cssClass", "secondary")
         load_btn.clicked.connect(self._on_project_load)
         proj_sel_row.addWidget(load_btn)
 
         delete_btn = QPushButton("Delete")
-        delete_btn.setFixedWidth(60)
+        delete_btn.setFixedWidth(55)
         delete_btn.setProperty("cssClass", "danger")
         delete_btn.clicked.connect(self._on_project_delete)
         proj_sel_row.addWidget(delete_btn)
 
-        project_layout.addLayout(proj_sel_row)
-
-        save_as_row = QHBoxLayout()
-        save_as_row.addStretch()
         save_as_btn = QPushButton("Save As...")
-        save_as_btn.setFixedWidth(85)
+        save_as_btn.setFixedWidth(65)
         save_as_btn.setProperty("cssClass", "secondary")
         save_as_btn.clicked.connect(self._on_project_save_as)
-        save_as_row.addWidget(save_as_btn)
-        project_layout.addLayout(save_as_row)
+        proj_sel_row.addWidget(save_as_btn)
+
+        project_layout.addLayout(proj_sel_row)
 
         left_layout.addWidget(project_group)
 
-        # ---- Template settings group ----
+        # ---- Template settings (collapsible-style compact group) ----
         settings_group = QGroupBox("Template Settings")
         settings_layout = QFormLayout(settings_group)
-        settings_layout.setSpacing(8)
+        settings_layout.setContentsMargins(8, 12, 8, 8)
+        settings_layout.setSpacing(4)
 
         self._customer_name = QLineEdit()
         self._customer_name.setPlaceholderText("Customer name")
@@ -225,7 +226,7 @@ class MainWindow(QMainWindow):
         logo_row.addWidget(self._logo_label, 1)
         logo_btn = QPushButton("Browse...")
         logo_btn.setProperty("cssClass", "secondary")
-        logo_btn.setFixedWidth(80)
+        logo_btn.setFixedWidth(70)
         logo_btn.clicked.connect(self._pick_logo)
         logo_row.addWidget(logo_btn)
         settings_layout.addRow("Logo:", logo_row_widget)
@@ -233,14 +234,34 @@ class MainWindow(QMainWindow):
         self._avery_selector = AverySelector()
         settings_layout.addRow(self._avery_selector)
 
+        # Manufacturer cross-reference for Customer P/N
+        self._xref_combo = QComboBox()
+        for display_name, key in XREF_MANUFACTURERS.items():
+            self._xref_combo.addItem(display_name, key)
+        self._xref_combo.currentIndexChanged.connect(self._on_xref_changed)
+        settings_layout.addRow("Customer P/N:", self._xref_combo)
+
+        # Description character limit
+        from PySide6.QtWidgets import QSpinBox
+        self._desc_limit_spin = QSpinBox()
+        self._desc_limit_spin.setRange(0, 500)
+        self._desc_limit_spin.setSpecialValueText("Unlimited")
+        self._desc_limit_spin.setSuffix(" chars")
+        self._desc_limit_spin.setValue(0)
+        self._desc_limit_spin.valueChanged.connect(
+            lambda v: self.label_presenter.set_description_limit(v)
+        )
+        settings_layout.addRow("Desc. Limit:", self._desc_limit_spin)
+
         left_layout.addWidget(settings_group)
 
-        # Label list (takes most space)
+        # Label list (takes most vertical space)
         self._label_list = LabelListPanel()
         self._label_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        left_layout.addWidget(self._label_list, 3)
+        self._label_list.setMinimumHeight(120)
+        left_layout.addWidget(self._label_list, 1)
 
-        # Label editor
+        # Label editor (bottom, compact)
         self._label_editor = LabelEditor()
         left_layout.addWidget(self._label_editor, 0)
 
@@ -253,9 +274,9 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(self._preview)
-        splitter.setStretchFactor(0, 2)
-        splitter.setStretchFactor(1, 3)
-        splitter.setSizes([450, 750])
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        splitter.setHandleWidth(6)
 
         content_layout.addWidget(splitter)
         main_layout.addWidget(content, 1)
@@ -408,6 +429,10 @@ class MainWindow(QMainWindow):
             self._logo_label.setStyleSheet("color: #333;")
             self.label_presenter.set_logo_path(path)
 
+    def _on_xref_changed(self, index: int) -> None:
+        xref_key = self._xref_combo.itemData(index) or ""
+        self.label_presenter.set_xref_key(xref_key)
+
     # --- CSV/Excel import ---
 
     def _on_import_csv(self) -> None:
@@ -434,22 +459,50 @@ class MainWindow(QMainWindow):
 
     # --- Bulk search ---
 
+    def _resolve_customer_pn(self, part: dict) -> str:
+        """Get the customer part number using the selected xref manufacturer."""
+        xref_key = self.label_presenter.template.xref_key
+        xrefs = part.get("xrefs", {})
+        if xref_key and xrefs:
+            return xrefs.get(xref_key, "")
+        # If no manufacturer selected, return empty
+        return part.get("customer_part_number", "")
+
+    def _apply_desc_limit(self, desc: str) -> str:
+        """Truncate description to the configured limit."""
+        limit = self.label_presenter.template.description_limit
+        if limit > 0 and len(desc) > limit:
+            return desc[:limit]
+        return desc
+
     def _on_bulk_search(self) -> None:
         dialog = BulkSearchDialog(self.label_presenter.data_source, self)
         if dialog.exec():
             selected = dialog.get_selected_parts()
-            if selected:
+            if not selected:
+                return
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            try:
                 for part in selected:
+                    # Download image from Catsy if available
+                    image_path = None
+                    image_url = part.get("image_url")
+                    if image_url:
+                        image_path = download_image(image_url)
+
                     label = LabelData(
                         brennan_part_number=part.get("brennan_part_number", ""),
-                        customer_part_number=part.get("customer_part_number", ""),
-                        description=part.get("description", ""),
+                        customer_part_number=self._resolve_customer_pn(part),
+                        description=self._apply_desc_limit(part.get("description", "")),
+                        image_path=image_path,
                     )
                     self.label_presenter.template.labels.append(label)
-                self.label_presenter._current_index = len(self.label_presenter.template.labels) - 1
-                self.label_presenter._notify_list_changed()
-                self.label_presenter._notify_label_selected()
-                self._status_label.setText(f"Added {len(selected)} labels from search")
+            finally:
+                QApplication.restoreOverrideCursor()
+            self.label_presenter._current_index = len(self.label_presenter.template.labels) - 1
+            self.label_presenter._notify_list_changed()
+            self.label_presenter._notify_label_selected()
+            self._status_label.setText(f"Added {len(selected)} labels from search")
 
     # --- Editor change handler ---
 
@@ -460,13 +513,41 @@ class MainWindow(QMainWindow):
     # --- Catsy lookup ---
 
     def _on_lookup_requested(self, query: str) -> None:
-        results = self.label_presenter.lookup_part(query)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            results = self.label_presenter.lookup_part(query)
+        finally:
+            QApplication.restoreOverrideCursor()
         if not results:
             QMessageBox.information(self, "Lookup", "No results found.")
             return
         dialog = LookupResultsDialog(results, self)
         if dialog.exec() and dialog.selected_part_number:
-            self.label_presenter.fill_from_lookup(dialog.selected_part_number)
+            # Find the selected part in results
+            part_data = None
+            for r in results:
+                if r.get("brennan_part_number") == dialog.selected_part_number:
+                    part_data = r
+                    break
+            if not part_data:
+                # Fetch fresh from API
+                part_data = self.label_presenter.data_source.get_part_details(
+                    dialog.selected_part_number
+                )
+            if part_data:
+                # Resolve customer P/N from xref
+                part_data["customer_part_number"] = self._resolve_customer_pn(part_data)
+                part_data["description"] = self._apply_desc_limit(part_data.get("description", ""))
+                # Download image
+                image_path = None
+                image_url = part_data.get("image_url")
+                if image_url:
+                    QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+                    try:
+                        image_path = download_image(image_url)
+                    finally:
+                        QApplication.restoreOverrideCursor()
+                self.label_presenter.fill_from_lookup(part_data, image_path)
 
     # --- Preview rendering ---
 
@@ -480,6 +561,16 @@ class MainWindow(QMainWindow):
         self._customer_name.setText(template.customer_name)
         self._qr_base_url.setText(template.qr_base_url)
         self._avery_selector.set_template_id(template.avery_template_id)
+
+        # Restore xref selection
+        idx = self._xref_combo.findData(template.xref_key)
+        if idx >= 0:
+            self._xref_combo.setCurrentIndex(idx)
+        else:
+            self._xref_combo.setCurrentIndex(0)
+
+        # Restore description limit
+        self._desc_limit_spin.setValue(template.description_limit)
 
         if template.logo_path:
             name = template.logo_path.split("/")[-1] if "/" in template.logo_path else template.logo_path.split("\\")[-1]
@@ -511,6 +602,9 @@ class MainWindow(QMainWindow):
                 label.description,
                 label.image_path,
             )
+            # Zoom preview to show the selected label
+            if index >= 0:
+                self._preview.zoom_to_label(index)
         else:
             self._label_editor.set_enabled(False)
             self._label_editor.clear()
@@ -523,9 +617,15 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Error", message)
 
     def _update_status(self, template: Template) -> None:
+        from src.services.label_layout import LabelLayoutService
         geo = AVERY_TEMPLATES.get(template.avery_template_id)
         name = geo.name if geo else "Unknown"
         count = len(template.labels)
+        # Update label grid positions for zoom-to-label
+        if geo:
+            layout_svc = LabelLayoutService()
+            positions = layout_svc.compute_label_positions(geo)
+            self._preview.set_label_grid(positions, geo.labels_per_page, template.start_offset)
         per_page = geo.labels_per_page if geo else 0
         pages = max(1, (count + template.start_offset + per_page - 1) // per_page) if per_page else 1
         project = self._current_project_name or template.customer_name or "Untitled"

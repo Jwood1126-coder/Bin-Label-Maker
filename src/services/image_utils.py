@@ -1,8 +1,17 @@
+import hashlib
+import logging
 import os
+import tempfile
 from io import BytesIO
 from typing import Optional
 
+import requests
 from PIL import Image as PILImage
+
+logger = logging.getLogger(__name__)
+
+# Cache directory for downloaded Catsy images
+_IMAGE_CACHE_DIR = os.path.join(tempfile.gettempdir(), "bin_label_maker_images")
 
 
 def load_image(path: Optional[str]) -> Optional[PILImage.Image]:
@@ -14,6 +23,39 @@ def load_image(path: Optional[str]) -> Optional[PILImage.Image]:
         img.load()
         return img
     except Exception:
+        return None
+
+
+def download_image(url: str) -> Optional[str]:
+    """Download an image from a URL and cache it locally.
+
+    Returns the local file path, or None on failure.
+    """
+    if not url:
+        return None
+
+    os.makedirs(_IMAGE_CACHE_DIR, exist_ok=True)
+
+    # Use URL hash as filename to avoid re-downloading
+    url_hash = hashlib.md5(url.encode()).hexdigest()
+    ext = ".jpg"
+    if ".png" in url.lower():
+        ext = ".png"
+    elif ".gif" in url.lower():
+        ext = ".gif"
+    cache_path = os.path.join(_IMAGE_CACHE_DIR, f"{url_hash}{ext}")
+
+    if os.path.isfile(cache_path):
+        return cache_path
+
+    try:
+        resp = requests.get(url, timeout=15)
+        resp.raise_for_status()
+        with open(cache_path, "wb") as f:
+            f.write(resp.content)
+        return cache_path
+    except Exception as e:
+        logger.warning("Failed to download image %s: %s", url, e)
         return None
 
 

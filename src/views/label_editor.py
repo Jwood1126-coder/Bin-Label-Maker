@@ -1,6 +1,6 @@
 """Form widget for editing a single label's data."""
 from PySide6.QtWidgets import (
-    QWidget, QFormLayout, QLineEdit, QPushButton, QFileDialog,
+    QWidget, QFormLayout, QLineEdit, QPushButton,
     QHBoxLayout, QLabel, QVBoxLayout, QDialog, QListWidget, QListWidgetItem,
     QDialogButtonBox, QGroupBox,
 )
@@ -22,10 +22,10 @@ class LabelEditor(QWidget):
 
         group = QGroupBox("Label Details")
         group_layout = QVBoxLayout(group)
-        group_layout.setSpacing(6)
+        group_layout.setSpacing(4)
 
         form = QFormLayout()
-        form.setSpacing(8)
+        form.setSpacing(6)
 
         self._brennan_pn = QLineEdit()
         self._brennan_pn.setPlaceholderText("e.g. 2404-04-02")
@@ -42,17 +42,10 @@ class LabelEditor(QWidget):
         self._description.textChanged.connect(self._on_field_changed)
         form.addRow("Description:", self._description)
 
-        # Image picker
-        img_row = QHBoxLayout()
-        self._image_path_label = QLabel("No image selected")
+        # Image status (read-only, populated from Catsy)
+        self._image_path_label = QLabel("No image")
         self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
-        img_row.addWidget(self._image_path_label, 1)
-        self._pick_image_btn = QPushButton("Browse...")
-        self._pick_image_btn.setProperty("cssClass", "secondary")
-        self._pick_image_btn.setFixedWidth(80)
-        self._pick_image_btn.clicked.connect(self._pick_image)
-        img_row.addWidget(self._pick_image_btn)
-        form.addRow("Part Image:", img_row)
+        form.addRow("Part Image:", self._image_path_label)
 
         group_layout.addLayout(form)
 
@@ -71,17 +64,6 @@ class LabelEditor(QWidget):
 
     def _on_field_changed(self) -> None:
         if not self._updating:
-            self.label_changed.emit()
-
-    def _pick_image(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select Part Image", "",
-            "Images (*.png *.jpg *.jpeg *.bmp *.gif);;All Files (*)"
-        )
-        if path:
-            self._image_path_label.setText(path.split("/")[-1])
-            self._image_path_label.setStyleSheet("color: #333;")
-            self._image_path = path
             self.label_changed.emit()
 
     def _on_lookup(self) -> None:
@@ -108,7 +90,7 @@ class LabelEditor(QWidget):
             self._image_path_label.setText(name)
             self._image_path_label.setStyleSheet("color: #333;")
         else:
-            self._image_path_label.setText("No image selected")
+            self._image_path_label.setText("No image")
             self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
         self._updating = False
 
@@ -118,7 +100,7 @@ class LabelEditor(QWidget):
         self._customer_pn.clear()
         self._description.clear()
         self._image_path = None
-        self._image_path_label.setText("No image selected")
+        self._image_path_label.setText("No image")
         self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
         self._updating = False
 
@@ -126,7 +108,6 @@ class LabelEditor(QWidget):
         self._brennan_pn.setEnabled(enabled)
         self._customer_pn.setEnabled(enabled)
         self._description.setEnabled(enabled)
-        self._pick_image_btn.setEnabled(enabled)
         self._lookup_btn.setEnabled(enabled)
         self._lookup_input.setEnabled(enabled)
 
@@ -152,7 +133,7 @@ class LookupResultsDialog(QDialog):
         self._list.setAlternatingRowColors(True)
         for r in results:
             item = QListWidgetItem(
-                f"{r['brennan_part_number']}  |  {r['customer_part_number']}  |  {r['description']}"
+                f"{r['brennan_part_number']}  |  {r.get('description', '')[:60]}"
             )
             item.setData(256, r["brennan_part_number"])  # Qt.UserRole
             self._list.addItem(item)

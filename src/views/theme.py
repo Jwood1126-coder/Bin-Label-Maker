@@ -38,8 +38,8 @@ def logo_icon_path() -> str:
 
 
 def logo_label_path() -> str:
-    """Logo sized for printing on labels."""
-    return str(_assets_dir() / "brennan_logo.png")
+    """Logo for printing on labels — small circle 'bi' icon."""
+    return str(_assets_dir() / "brennan_icon.png")
 
 
 def app_icon() -> QIcon:

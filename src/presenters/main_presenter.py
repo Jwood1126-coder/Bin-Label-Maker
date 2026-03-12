@@ -18,8 +18,8 @@ class MainPresenter:
     def on_open(self, file_path: str) -> None:
         self.label_presenter.load_template(file_path)
 
-    def on_save(self, file_path: str) -> None:
-        self.label_presenter.save_template(file_path)
+    def on_save(self, file_path: str) -> bool:
+        return self.label_presenter.save_template(file_path)
 
-    def on_export_pdf(self, output_path: str) -> None:
-        self.label_presenter.export_pdf(output_path)
+    def on_export_pdf(self, output_path: str) -> bool:
+        return self.label_presenter.export_pdf(output_path)

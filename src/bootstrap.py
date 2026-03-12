@@ -1,13 +1,15 @@
 """Composition root — single place where all dependencies are wired."""
+import json
 import logging
 import os
+from pathlib import Path
 
 from src.services.label_layout import LabelLayoutService
 from src.services.qr_generator import QRGenerator
 from src.services.pdf_renderer import PDFRenderer
 from src.services.preview_renderer import PreviewRenderer
 from src.services.template_io import TemplateIO
-from src.services.project_manager import ProjectManager
+from src.services.project_manager import ProjectManager, get_app_data_dir
 from src.services.catsy_mock import MockCatsyService
 from src.services.catsy_live import LiveCatsyService
 from src.presenters.label_presenter import LabelPresenter
@@ -19,13 +21,47 @@ logger = logging.getLogger(__name__)
 
 # Catsy API configuration
 CATSY_API_URL = "https://api.catsy.com/v4"
-CATSY_BEARER_TOKEN = "081ae682b02945bbb868715f50b705cd"
+
+
+def _load_catsy_token() -> str:
+    """Load Catsy bearer token from environment or config file.
+
+    Lookup order:
+    1. CATSY_BEARER_TOKEN environment variable
+    2. config.json in app data directory ({"catsy_bearer_token": "..."})
+    3. Returns empty string if neither found
+    """
+    # 1. Environment variable
+    token = os.environ.get("CATSY_BEARER_TOKEN", "").strip()
+    if token:
+        return token
+
+    # 2. Config file in app data directory
+    config_path = get_app_data_dir() / "config.json"
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = json.load(f)
+            token = config.get("catsy_bearer_token", "").strip()
+            if token:
+                return token
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning("Failed to read config file: %s", e)
+
+    return ""
 
 
 def _create_data_source():
     """Create the best available data source — live Catsy API with mock fallback."""
+    token = _load_catsy_token()
+    if not token:
+        logger.info("No Catsy API token configured, using mock data. "
+                     "Set CATSY_BEARER_TOKEN env var or add to %s/config.json",
+                     get_app_data_dir())
+        return MockCatsyService()
+
     try:
-        live = LiveCatsyService(CATSY_API_URL, CATSY_BEARER_TOKEN)
+        live = LiveCatsyService(CATSY_API_URL, token)
         ok, msg = live.test_connection()
         if ok:
             logger.info("Catsy API connected: %s", msg)

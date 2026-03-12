@@ -73,24 +73,30 @@ class LabelPresenter:
             if self._view:
                 self._view.show_error(f"Failed to load template:\n{e}")
 
-    def save_template(self, file_path: str) -> None:
+    def save_template(self, file_path: str) -> bool:
+        """Save template to file. Returns True on success."""
         try:
             self.template_io.save(self.template, file_path)
             self._dirty = False
             logger.info("Saved template to %s", file_path)
+            return True
         except Exception as e:
             logger.error("Failed to save template: %s", e)
             if self._view:
                 self._view.show_error(f"Failed to save template:\n{e}")
+            return False
 
-    def export_pdf(self, output_path: str) -> None:
+    def export_pdf(self, output_path: str) -> bool:
+        """Export PDF. Returns True on success."""
         try:
             self.pdf_renderer.render(self.template, output_path)
             logger.info("Exported PDF to %s", output_path)
+            return True
         except Exception as e:
             logger.error("Failed to export PDF: %s", e)
             if self._view:
                 self._view.show_error(f"Failed to export PDF:\n{e}")
+            return False
 
     # --- Avery template selection ---
 
@@ -165,6 +171,17 @@ class LabelPresenter:
             self._notify_list_changed()
             self._notify_label_selected()
 
+    def move_label(self, index: int, direction: int) -> None:
+        """Move a label up (direction=-1) or down (direction=1)."""
+        new_index = index + direction
+        if 0 <= index < len(self.template.labels) and 0 <= new_index < len(self.template.labels):
+            labels = self.template.labels
+            labels[index], labels[new_index] = labels[new_index], labels[index]
+            self._current_index = new_index
+            self._dirty = True
+            self._notify_list_changed()
+            self._notify_label_selected()
+
     def add_labels(self, labels: list) -> None:
         """Add multiple labels at once (from bulk search, CSV import, etc.)."""
         if not labels:
@@ -183,16 +200,22 @@ class LabelPresenter:
         self._dirty = False
         self._notify_template_changed()
 
-    def fill_sheet(self) -> None:
-        """Fill remaining label slots on the current page with copies of selected label."""
+    def fill_sheet(self) -> str:
+        """Fill remaining label slots on the current page with copies of selected label.
+
+        Returns a status message describing what happened.
+        """
+        source = self.current_label
+        if not source or source.is_empty():
+            return "Select a non-empty label first to fill the sheet with copies of it."
+
         geo = AVERY_TEMPLATES[self.template.avery_template_id]
         per_page = geo.labels_per_page
         current_count = len(self.template.labels) + self.template.start_offset
         remaining = per_page - (current_count % per_page)
         if remaining == per_page:
-            return  # already full
+            return "Sheet is already full."
 
-        source = self.current_label or LabelData()
         for _ in range(remaining):
             self.template.labels.append(LabelData(
                 brennan_part_number=source.brennan_part_number,
@@ -203,6 +226,7 @@ class LabelPresenter:
             ))
         self._dirty = True
         self._notify_list_changed()
+        return f"Added {remaining} copies of '{source.brennan_part_number}' to fill the sheet."
 
     def select_label(self, index: int) -> None:
         self._current_index = index
@@ -219,12 +243,63 @@ class LabelPresenter:
             elif field == "customer_pn":
                 label.customer_part_number = value
             elif field == "description":
-                if self.template.description_mode == "short":
-                    label.short_description = value
-                else:
-                    label.description = value
+                label.description = value
+            elif field == "short_description":
+                label.short_description = value
             self._dirty = True
             self._notify_preview_update()
+
+    def replace_labels(self, labels: list) -> None:
+        """Replace all labels (for import-replace mode)."""
+        self.template.labels = list(labels)
+        self._current_index = 0 if labels else -1
+        self._dirty = True
+        self._notify_list_changed()
+        self._notify_label_selected()
+
+    def preflight_check(self) -> list[str]:
+        """Run preflight validation before export. Returns list of warning messages."""
+        import os
+        from collections import Counter
+
+        warnings = []
+        if not self.template.labels:
+            warnings.append("No labels to export.")
+            return warnings
+
+        empty_count = sum(1 for l in self.template.labels if l.is_empty())
+        if empty_count:
+            warnings.append(f"{empty_count} label(s) are completely empty.")
+
+        missing_brennan = sum(1 for l in self.template.labels
+                             if not l.brennan_part_number and not l.is_empty())
+        if missing_brennan:
+            warnings.append(f"{missing_brennan} label(s) have no Brennan part number (no QR code will be generated).")
+
+        # Duplicate detection
+        pn_counts = Counter(l.brennan_part_number for l in self.template.labels
+                           if l.brennan_part_number)
+        dupes = {pn: count for pn, count in pn_counts.items() if count > 1}
+        if dupes:
+            dupe_list = ", ".join(f"{pn} (\u00d7{count})" for pn, count in list(dupes.items())[:5])
+            suffix = f" and {len(dupes) - 5} more" if len(dupes) > 5 else ""
+            warnings.append(f"Duplicate part numbers: {dupe_list}{suffix}")
+
+        # Partially filled last page
+        geo = AVERY_TEMPLATES.get(self.template.avery_template_id)
+        if geo:
+            per_page = geo.labels_per_page
+            total_slots = len(self.template.labels) + self.template.start_offset
+            remainder = total_slots % per_page
+            if remainder > 0:
+                blank_on_last = per_page - remainder
+                warnings.append(f"Last page has {blank_on_last} empty slot(s) out of {per_page}.")
+
+        if self.template.logo_path:
+            if not os.path.isfile(self.template.logo_path):
+                warnings.append(f"Logo file not found: {self.template.logo_path}")
+
+        return warnings
 
     # --- Catsy lookup ---
 

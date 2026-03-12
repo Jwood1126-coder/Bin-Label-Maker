@@ -69,7 +69,19 @@ class PreviewRenderer:
             painter.drawRect(qt_rect)
 
             label_idx = label_start + slot_idx
-            if label_idx < 0 or label_idx >= len(template.labels):
+            # Mark offset-skipped slots with diagonal hatching on first page
+            if label_idx < 0:
+                painter.save()
+                painter.setPen(QPen(QColor(200, 200, 200, 120), 0.5))
+                painter.setBrush(QColor(240, 240, 240, 100))
+                painter.drawRect(qt_rect)
+                # Draw "X" lines to indicate skipped
+                painter.drawLine(qt_rect.topLeft(), qt_rect.bottomRight())
+                painter.drawLine(qt_rect.topRight(), qt_rect.bottomLeft())
+                painter.restore()
+                continue
+
+            if label_idx >= len(template.labels):
                 continue
 
             label = template.labels[label_idx]

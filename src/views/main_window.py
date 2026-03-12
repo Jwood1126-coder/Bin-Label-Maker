@@ -27,7 +27,7 @@ from src.views.label_list_panel import LabelListPanel
 from src.views.preview_panel import PreviewPanel
 from src.views.bulk_search_dialog import BulkSearchDialog
 from src.views.theme import logo_full_path, BRENNAN_BLUE, BRENNAN_WHITE
-from src.services.csv_importer import import_labels_from_file
+from src.services.csv_importer import import_labels_from_file, parse_clipboard_text
 from src.services.image_utils import download_image
 
 
@@ -97,6 +97,9 @@ class MainWindow(QMainWindow):
         self._current_project_name: str = ""
         self._download_thread: Optional[QThread] = None
         self._last_dir = str(Path.home() / "Documents")
+        # Guard flag: True while we are programmatically updating UI widgets.
+        # When set, change handlers must NOT propagate to the presenter.
+        self._refreshing_ui: bool = False
 
         self.setWindowTitle("Bin Label Maker \u2014 Brennan Industries")
         self.setMinimumSize(780, 500)
@@ -133,8 +136,7 @@ class MainWindow(QMainWindow):
             | QMessageBox.StandardButton.Cancel,
         )
         if reply == QMessageBox.StandardButton.Save:
-            self._on_project_save()
-            return True
+            return self._on_project_save()
         elif reply == QMessageBox.StandardButton.Discard:
             return True
         return False  # Cancel
@@ -144,24 +146,24 @@ class MainWindow(QMainWindow):
 
         file_menu = menu_bar.addMenu("File")
 
-        new_action = QAction("New Template", self)
+        new_action = QAction("New Job", self)
         new_action.setShortcut(QKeySequence.StandardKey.New)
         new_action.triggered.connect(self._on_new)
         file_menu.addAction(new_action)
 
-        save_action = QAction("Save Project", self)
+        save_action = QAction("Save Job", self)
         save_action.setShortcut(QKeySequence.StandardKey.Save)
         save_action.triggered.connect(self._on_project_save)
         file_menu.addAction(save_action)
 
         file_menu.addSeparator()
 
-        import_action = QAction("Import Template File...", self)
+        import_action = QAction("Open Job File...", self)
         import_action.setShortcut(QKeySequence.StandardKey.Open)
         import_action.triggered.connect(self._on_import_file)
         file_menu.addAction(import_action)
 
-        export_template_action = QAction("Export Template File...", self)
+        export_template_action = QAction("Export Job File...", self)
         export_template_action.triggered.connect(self._on_export_template)
         file_menu.addAction(export_template_action)
 
@@ -171,6 +173,12 @@ class MainWindow(QMainWindow):
         import_csv_action.setShortcut("Ctrl+I")
         import_csv_action.triggered.connect(self._on_import_csv)
         file_menu.addAction(import_csv_action)
+
+        paste_action = QAction("Paste Parts from Clipboard", self)
+        paste_action.setShortcut("Ctrl+Shift+V")
+        paste_action.setToolTip("Paste tab-separated or CSV data from clipboard")
+        paste_action.triggered.connect(self._on_paste_labels)
+        file_menu.addAction(paste_action)
 
         file_menu.addSeparator()
 
@@ -232,15 +240,15 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(8, 8, 8, 4)
         content_layout.setSpacing(0)
 
-        # Left panel: project bar + template settings + label list
+        # Left panel: project bar + label settings + label list
         left_panel = QWidget()
-        left_panel.setMinimumWidth(280)
+        left_panel.setMinimumWidth(320)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 4, 0)
         left_layout.setSpacing(4)
 
-        # ---- Project bar ----
-        project_group = QGroupBox("Customer Project")
+        # ---- Job bar ----
+        project_group = QGroupBox("Customer Job")
         project_layout = QVBoxLayout(project_group)
         project_layout.setContentsMargins(8, 12, 8, 8)
         project_layout.setSpacing(4)
@@ -249,9 +257,9 @@ class MainWindow(QMainWindow):
         proj_sel_row.setSpacing(4)
         self._project_combo = QComboBox()
         self._project_combo.setEditable(True)
-        self._project_combo.setPlaceholderText("Customer / project name...")
+        self._project_combo.setPlaceholderText("Customer / job name...")
         self._project_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self._project_combo.setToolTip("Select an existing project or type a new name")
+        self._project_combo.setToolTip("Select a saved job or type a new name")
         self._refresh_project_list()
         proj_sel_row.addWidget(self._project_combo, 1)
         project_layout.addLayout(proj_sel_row)
@@ -260,25 +268,25 @@ class MainWindow(QMainWindow):
         proj_btn_row.setSpacing(4)
 
         save_btn = QPushButton("Save")
-        save_btn.setToolTip("Save the current template to this project (Ctrl+S)")
+        save_btn.setToolTip("Save the current job (Ctrl+S)")
         save_btn.clicked.connect(self._on_project_save)
         proj_btn_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load")
         load_btn.setProperty("cssClass", "secondary")
-        load_btn.setToolTip("Load the selected project")
+        load_btn.setToolTip("Load the selected job")
         load_btn.clicked.connect(self._on_project_load)
         proj_btn_row.addWidget(load_btn)
 
         delete_btn = QPushButton("Delete")
         delete_btn.setProperty("cssClass", "danger")
-        delete_btn.setToolTip("Permanently delete the selected project")
+        delete_btn.setToolTip("Permanently delete the selected job")
         delete_btn.clicked.connect(self._on_project_delete)
         proj_btn_row.addWidget(delete_btn)
 
         save_as_btn = QPushButton("Save As")
         save_as_btn.setProperty("cssClass", "secondary")
-        save_as_btn.setToolTip("Save a copy under a new project name")
+        save_as_btn.setToolTip("Save a copy under a new job name")
         save_as_btn.clicked.connect(self._on_project_save_as)
         proj_btn_row.addWidget(save_as_btn)
 
@@ -286,15 +294,15 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(project_group)
 
-        # ---- Template settings ----
-        settings_group = QGroupBox("Template Settings")
+        # ---- Label Settings ----
+        settings_group = QGroupBox("Label Settings")
         settings_layout = QFormLayout(settings_group)
         settings_layout.setContentsMargins(8, 12, 8, 8)
         settings_layout.setSpacing(4)
 
         self._avery_selector = AverySelector()
         self._avery_selector.setToolTip("Choose the Avery label sheet format for printing")
-        settings_layout.addRow("Avery Template:", self._avery_selector)
+        settings_layout.addRow("Avery Sheet:", self._avery_selector)
 
         # Manufacturer cross-reference for Customer P/N
         self._xref_combo = QComboBox()
@@ -309,27 +317,35 @@ class MainWindow(QMainWindow):
         # Description mode: Full Description or Short Description
         self._desc_mode_combo = QComboBox()
         self._desc_mode_combo.setToolTip(
+            "Controls which description is shown on the printed label.\n"
             "Full: material + connection sizes\n"
-            "Short: compact size codes (e.g. 04MJ x 02MP)"
+            "Short: compact size codes (e.g. 04MJ x 02MP)\n\n"
+            "Both fields are always editable in the table."
         )
         self._desc_mode_combo.addItem("Full Description", DESC_MODE_FULL)
         self._desc_mode_combo.addItem("Short Description", DESC_MODE_SHORT)
         self._desc_mode_combo.currentIndexChanged.connect(self._on_desc_mode_changed)
-        settings_layout.addRow("Description:", self._desc_mode_combo)
+        settings_layout.addRow("Print Mode:", self._desc_mode_combo)
 
         # Start offset for partial sheets
+        offset_widget = QWidget()
+        offset_layout = QHBoxLayout(offset_widget)
+        offset_layout.setContentsMargins(0, 0, 0, 0)
+        offset_layout.setSpacing(4)
         self._start_offset_spin = QSpinBox()
         self._start_offset_spin.setMinimum(0)
         self._start_offset_spin.setMaximum(29)
         self._start_offset_spin.setValue(0)
+        self._start_offset_spin.setSuffix(" labels skipped")
         self._start_offset_spin.setToolTip(
-            "Skip this many label slots from the top-left.\n"
-            "Use when printing on a partially-used sheet."
+            "Skip this many label positions from the top-left.\n"
+            "Use when printing on a partially-used sheet.\n\n"
+            "Example: if the first 5 labels were already used,\n"
+            "set this to 5 so printing starts at position 6."
         )
-        self._start_offset_spin.valueChanged.connect(
-            lambda v: self.label_presenter.set_start_offset(v)
-        )
-        settings_layout.addRow("Start Offset:", self._start_offset_spin)
+        self._start_offset_spin.valueChanged.connect(self._on_start_offset_changed)
+        offset_layout.addWidget(self._start_offset_spin, 1)
+        settings_layout.addRow("Skip Labels:", offset_widget)
 
         # QR Base URL
         self._qr_base_url = QLineEdit()
@@ -338,9 +354,7 @@ class MainWindow(QMainWindow):
             "Base URL for QR codes. Part number is appended automatically.\n"
             "Example: https://brennaninc.com/ + 2404-04-02"
         )
-        self._qr_base_url.textChanged.connect(
-            lambda t: self.label_presenter.set_qr_base_url(t)
-        )
+        self._qr_base_url.textChanged.connect(self._on_qr_url_changed)
         settings_layout.addRow("QR Base URL:", self._qr_base_url)
 
         # Logo picker
@@ -393,19 +407,48 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self) -> None:
         # Avery selector
-        self._avery_selector.template_changed.connect(
-            self.label_presenter.set_avery_template
-        )
+        self._avery_selector.template_changed.connect(self._on_avery_changed)
 
         # Label list
         self._label_list.label_selected.connect(self.label_presenter.select_label)
         self._label_list.add_requested.connect(self.label_presenter.add_label)
         self._label_list.remove_requested.connect(self.label_presenter.remove_label)
         self._label_list.duplicate_requested.connect(self.label_presenter.duplicate_label)
-        self._label_list.fill_sheet_requested.connect(self.label_presenter.fill_sheet)
+        self._label_list.move_requested.connect(self.label_presenter.move_label)
+        self._label_list.fill_sheet_requested.connect(self._on_fill_sheet)
         self._label_list.bulk_search_requested.connect(self._on_bulk_search)
         self._label_list.import_csv_requested.connect(self._on_import_csv)
         self._label_list.label_edited.connect(self._on_label_edited)
+
+    # --- UI change handlers (guard against signal loops during refresh) ---
+
+    def _on_avery_changed(self, template_id: str) -> None:
+        if not self._refreshing_ui:
+            self.label_presenter.set_avery_template(template_id)
+
+    def _on_xref_changed(self, index: int) -> None:
+        if not self._refreshing_ui:
+            xref_key = self._xref_combo.itemData(index) or ""
+            self.label_presenter.set_xref_key(xref_key)
+
+    def _on_desc_mode_changed(self, index: int) -> None:
+        if not self._refreshing_ui:
+            mode = self._desc_mode_combo.itemData(index) or DESC_MODE_FULL
+            self.label_presenter.set_description_mode(mode)
+
+    def _on_start_offset_changed(self, value: int) -> None:
+        if not self._refreshing_ui:
+            self.label_presenter.set_start_offset(value)
+
+    def _on_qr_url_changed(self, text: str) -> None:
+        if not self._refreshing_ui:
+            self.label_presenter.set_qr_base_url(text)
+
+    # --- Fill Sheet (with safety check) ---
+
+    def _on_fill_sheet(self) -> None:
+        message = self.label_presenter.fill_sheet()
+        self._status_label.setText(message)
 
     # --- Project management ---
 
@@ -422,38 +465,44 @@ class MainWindow(QMainWindow):
             self._project_combo.setEditText(current_text)
         self._project_combo.blockSignals(False)
 
-    def _on_project_save(self) -> None:
+    def _on_project_save(self) -> bool:
+        """Save the current job. Returns True on success."""
         name = self._project_combo.currentText().strip()
         if not name:
-            QMessageBox.warning(self, "Warning", "Enter a customer/project name first.")
-            return
-        self.label_presenter.template.customer_name = name
-        self.project_manager.save_project(name, self.label_presenter.template)
-        self.label_presenter.mark_clean()
-        self._current_project_name = name
-        self._refresh_project_list()
-        self._status_label.setText(f"Saved project: {name}")
+            QMessageBox.warning(self, "Warning", "Enter a customer/job name first.")
+            return False
+        try:
+            self.label_presenter.template.customer_name = name
+            self.project_manager.save_project(name, self.label_presenter.template)
+            self.label_presenter.mark_clean()
+            self._current_project_name = name
+            self._refresh_project_list()
+            self._status_label.setText(f"Saved job: {name}")
+            return True
+        except Exception as e:
+            QMessageBox.critical(self, "Save Failed", f"Could not save job:\n{e}")
+            return False
 
     def _on_project_load(self) -> None:
-        if not self._check_unsaved_changes("load another project"):
+        if not self._check_unsaved_changes("load another job"):
             return
         name = self._project_combo.currentText().strip()
         if not name:
-            QMessageBox.warning(self, "Warning", "Select or type a project name.")
+            QMessageBox.warning(self, "Warning", "Select or type a job name.")
             return
         template = self.project_manager.load_project(name)
         if template is None:
-            QMessageBox.warning(self, "Warning", f"Project '{name}' not found.")
+            QMessageBox.warning(self, "Warning", f"Job '{name}' not found.")
             return
         self.label_presenter.apply_template(template)
         self._current_project_name = name
-        self._status_label.setText(f"Loaded project: {name}")
+        self._status_label.setText(f"Loaded job: {name}")
 
     def _on_project_save_as(self) -> None:
         current_name = (self._project_combo.currentText().strip()
                         or self.label_presenter.template.customer_name)
         new_name, ok = QInputDialog.getText(
-            self, "Save As", "Enter new project name:", text=current_name
+            self, "Save As", "Enter new job name:", text=current_name
         )
         if ok and new_name and new_name.strip():
             new_name = new_name.strip()
@@ -465,31 +514,31 @@ class MainWindow(QMainWindow):
         if not name:
             return
         reply = QMessageBox.question(
-            self, "Delete Project",
-            f"Delete project '{name}'? This cannot be undone.",
+            self, "Delete Job",
+            f"Delete job '{name}'? This cannot be undone.",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.project_manager.delete_project(name)
             self._current_project_name = ""
             self._refresh_project_list()
-            self._status_label.setText(f"Deleted project: {name}")
+            self._status_label.setText(f"Deleted job: {name}")
 
     # --- Menu actions ---
 
     def _on_new(self) -> None:
-        if not self._check_unsaved_changes("create a new template"):
+        if not self._check_unsaved_changes("create a new job"):
             return
         self._current_project_name = ""
         self._project_combo.setEditText("")
         self.main_presenter.on_new()
 
     def _on_import_file(self) -> None:
-        if not self._check_unsaved_changes("import a template"):
+        if not self._check_unsaved_changes("open a job file"):
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import Template", self._last_dir,
-            "Label Templates (*.blm *.json);;All Files (*)"
+            self, "Open Job File", self._last_dir,
+            "Label Jobs (*.blm *.json);;All Files (*)"
         )
         if path:
             self._last_dir = str(Path(path).parent)
@@ -500,29 +549,48 @@ class MainWindow(QMainWindow):
                 if template:
                     self.label_presenter.apply_template(template)
                 self._refresh_project_list()
-                self._status_label.setText(f"Imported project: {name}")
+                self._status_label.setText(f"Opened job: {name}")
             else:
                 QMessageBox.warning(
-                    self, "Import Failed", "Could not import the template file."
+                    self, "Open Failed", "Could not open the job file."
                 )
 
     def _on_export_template(self) -> None:
         name = (self._current_project_name
                 or self.label_presenter.template.customer_name
-                or "template")
+                or "job")
         suggested = str(Path(self._last_dir) / f"{name}.blm")
         path, _ = QFileDialog.getSaveFileName(
-            self, "Export Template", suggested,
-            "Label Templates (*.blm);;JSON (*.json);;All Files (*)"
+            self, "Export Job File", suggested,
+            "Label Jobs (*.blm);;JSON (*.json);;All Files (*)"
         )
         if path:
             self._last_dir = str(Path(path).parent)
             if not (path.endswith(".blm") or path.endswith(".json")):
                 path += ".blm"
-            self.label_presenter.save_template(path)
-            self._status_label.setText(f"Exported template to {path}")
+            if self.label_presenter.save_template(path):
+                self._status_label.setText(f"Exported job to {path}")
+            else:
+                self._status_label.setText("Export failed")
 
     def _on_export_pdf(self) -> None:
+        # Run preflight validation
+        warnings = self.label_presenter.preflight_check()
+        if warnings:
+            no_labels = any("No labels" in w for w in warnings)
+            if no_labels:
+                QMessageBox.warning(self, "Cannot Export", "\n".join(warnings))
+                return
+            # Show warnings but let user proceed
+            msg = "The following issues were found:\n\n" + "\n".join(f"  \u2022 {w}" for w in warnings)
+            msg += "\n\nDo you want to export anyway?"
+            reply = QMessageBox.question(
+                self, "Export Warnings", msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
         name = (self._current_project_name
                 or self.label_presenter.template.customer_name
                 or "labels")
@@ -535,20 +603,23 @@ class MainWindow(QMainWindow):
             self._last_dir = str(Path(path).parent)
             if not path.endswith(".pdf"):
                 path += ".pdf"
-            self.main_presenter.on_export_pdf(path)
-            reply = QMessageBox.information(
-                self, "PDF Exported",
-                f"PDF saved to:\n{path}",
-                QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Ok,
-            )
-            if reply == QMessageBox.StandardButton.Open:
-                if sys.platform == "win32":
-                    os.startfile(path)
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", path])
-                else:
-                    subprocess.Popen(["xdg-open", path])
-            self._status_label.setText(f"PDF exported to {path}")
+            success = self.main_presenter.on_export_pdf(path)
+            if success:
+                reply = QMessageBox.information(
+                    self, "PDF Exported",
+                    f"PDF saved to:\n{path}",
+                    QMessageBox.StandardButton.Open | QMessageBox.StandardButton.Ok,
+                )
+                if reply == QMessageBox.StandardButton.Open:
+                    if sys.platform == "win32":
+                        os.startfile(path)
+                    elif sys.platform == "darwin":
+                        subprocess.Popen(["open", path])
+                    else:
+                        subprocess.Popen(["xdg-open", path])
+                self._status_label.setText(f"PDF exported to {path}")
+            else:
+                self._status_label.setText("PDF export failed")
 
     def _pick_logo(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -560,14 +631,6 @@ class MainWindow(QMainWindow):
             self._logo_label.setText(os.path.basename(path))
             self._logo_label.setStyleSheet("color: #333;")
             self.label_presenter.set_logo_path(path)
-
-    def _on_xref_changed(self, index: int) -> None:
-        xref_key = self._xref_combo.itemData(index) or ""
-        self.label_presenter.set_xref_key(xref_key)
-
-    def _on_desc_mode_changed(self, index: int) -> None:
-        mode = self._desc_mode_combo.itemData(index) or DESC_MODE_FULL
-        self.label_presenter.set_description_mode(mode)
 
     # --- CSV/Excel import ---
 
@@ -581,8 +644,8 @@ class MainWindow(QMainWindow):
             return
         self._last_dir = str(Path(path).parent)
         try:
-            labels = import_labels_from_file(path)
-            if not labels:
+            result = import_labels_from_file(path)
+            if not result.labels:
                 QMessageBox.warning(
                     self, "Import",
                     "No labels found in the file.\n"
@@ -590,12 +653,67 @@ class MainWindow(QMainWindow):
                     "customer_part_number, description",
                 )
                 return
-            self.label_presenter.add_labels(labels)
-            self._status_label.setText(
-                f"Imported {len(labels)} labels from {os.path.basename(path)}"
-            )
+
+            self._import_labels(result.labels, source=os.path.basename(path),
+                                summary=result.summary())
         except Exception as e:
             QMessageBox.critical(self, "Import Error", f"Failed to import file:\n{e}")
+
+    def _on_paste_labels(self) -> None:
+        """Paste labels from clipboard (tab-separated or CSV text)."""
+        clipboard = QApplication.clipboard()
+        text = clipboard.text()
+        if not text or not text.strip():
+            self._status_label.setText("Clipboard is empty")
+            return
+        try:
+            result = parse_clipboard_text(text)
+            if not result.labels:
+                self._status_label.setText("No label data found in clipboard")
+                return
+            self._import_labels(result.labels, source="clipboard",
+                                summary=result.summary())
+        except Exception as e:
+            QMessageBox.warning(self, "Paste Error", f"Could not parse clipboard data:\n{e}")
+
+    def _import_labels(self, labels: list, source: str = "", summary: str = "") -> None:
+        """Common import path for file import and clipboard paste."""
+        # Check for duplicates against existing labels
+        existing_pns = {l.brennan_part_number for l in self.label_presenter.template.labels
+                        if l.brennan_part_number}
+        dupe_count = sum(1 for l in labels if l.brennan_part_number in existing_pns)
+
+        # Ask append vs replace if there are existing labels
+        if self.label_presenter.template.labels:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Import Labels")
+            info = f"Found {len(labels)} part(s) from {source}."
+            if dupe_count:
+                info += f"\n{dupe_count} already exist in the current job."
+            info += f"\n\nYou have {len(self.label_presenter.template.labels)} label(s)."
+            msg_box.setText(info)
+            msg_box.setInformativeText("Append to existing labels or replace all?")
+            if summary:
+                msg_box.setDetailedText(summary)
+            append_btn = msg_box.addButton("Append", QMessageBox.ButtonRole.AcceptRole)
+            replace_btn = msg_box.addButton("Replace All", QMessageBox.ButtonRole.DestructiveRole)
+            msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+            msg_box.setDefaultButton(append_btn)
+            msg_box.exec()
+            clicked = msg_box.clickedButton()
+            if clicked == replace_btn:
+                self.label_presenter.replace_labels(labels)
+                self._status_label.setText(
+                    f"Replaced with {len(labels)} labels from {source}"
+                )
+                return
+            elif clicked != append_btn:
+                return  # Cancel
+
+        self.label_presenter.add_labels(labels)
+        self._status_label.setText(
+            f"Imported {len(labels)} labels from {source}"
+        )
 
     # --- Bulk search ---
 
@@ -658,34 +776,39 @@ class MainWindow(QMainWindow):
     # --- View interface (called by LabelPresenter) ---
 
     def on_template_changed(self, template: Template) -> None:
-        """Called when a new template is loaded or created."""
-        self._project_combo.setEditText(template.customer_name)
-        self._qr_base_url.setText(template.qr_base_url)
-        self._avery_selector.set_template_id(template.avery_template_id)
+        """Called when a new template is loaded or created.
 
-        # Restore xref selection
-        idx = self._xref_combo.findData(template.xref_key)
-        if idx >= 0:
-            self._xref_combo.setCurrentIndex(idx)
-        else:
-            self._xref_combo.setCurrentIndex(0)
+        Sets _refreshing_ui to prevent signal handlers from dirtying state.
+        """
+        self._refreshing_ui = True
+        try:
+            self._project_combo.setEditText(template.customer_name)
+            self._qr_base_url.setText(template.qr_base_url)
+            self._avery_selector.set_template_id(template.avery_template_id)
 
-        # Restore description mode
-        idx = self._desc_mode_combo.findData(template.description_mode)
-        if idx >= 0:
-            self._desc_mode_combo.setCurrentIndex(idx)
+            # Restore xref selection
+            idx = self._xref_combo.findData(template.xref_key)
+            if idx >= 0:
+                self._xref_combo.setCurrentIndex(idx)
+            else:
+                self._xref_combo.setCurrentIndex(0)
 
-        # Restore start offset
-        self._start_offset_spin.blockSignals(True)
-        self._start_offset_spin.setValue(template.start_offset)
-        self._start_offset_spin.blockSignals(False)
+            # Restore description mode
+            idx = self._desc_mode_combo.findData(template.description_mode)
+            if idx >= 0:
+                self._desc_mode_combo.setCurrentIndex(idx)
 
-        if template.logo_path:
-            self._logo_label.setText(os.path.basename(template.logo_path))
-            self._logo_label.setStyleSheet("color: #333;")
-        else:
-            self._logo_label.setText("No logo selected")
-            self._logo_label.setStyleSheet("color: #888; font-style: italic;")
+            # Restore start offset
+            self._start_offset_spin.setValue(template.start_offset)
+
+            if template.logo_path:
+                self._logo_label.setText(os.path.basename(template.logo_path))
+                self._logo_label.setStyleSheet("color: #333;")
+            else:
+                self._logo_label.setText("No logo selected")
+                self._logo_label.setStyleSheet("color: #888; font-style: italic;")
+        finally:
+            self._refreshing_ui = False
 
         self._label_list.update_labels(
             template.labels, description_mode=template.description_mode
@@ -724,9 +847,9 @@ class MainWindow(QMainWindow):
                 page_height_pt=geo.page_height_pt,
             )
             # Update start offset max based on template
-            self._start_offset_spin.blockSignals(True)
+            self._refreshing_ui = True
             self._start_offset_spin.setMaximum(geo.labels_per_page - 1)
-            self._start_offset_spin.blockSignals(False)
+            self._refreshing_ui = False
 
         per_page = geo.labels_per_page if geo else 0
         pages = (

@@ -98,19 +98,19 @@ class PreviewRenderer:
             )
             self._draw_pil_image(painter, qr_pil, layout.qr_rect)
 
-        # Customer part number
+        # Customer part number (top, left-aligned)
         if label.customer_part_number:
-            fs = self._auto_font_size(label.customer_part_number, layout.customer_pn_rect.width, 7)
+            fs = self._auto_font_size(label.customer_part_number, layout.customer_pn_rect.width, 8)
             painter.setFont(QFont("Helvetica", fs))
             painter.setPen(QColor(0, 0, 0))
             painter.drawText(
                 QRectF(layout.customer_pn_rect.x, layout.customer_pn_rect.y,
                        layout.customer_pn_rect.width, layout.customer_pn_rect.height),
-                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 label.customer_part_number,
             )
 
-        # Brennan part number (bold)
+        # Brennan part number (bold, left-aligned)
         if label.brennan_part_number:
             fs = self._auto_font_size(label.brennan_part_number, layout.brennan_pn_rect.width, 14)
             font = QFont("Helvetica", fs)
@@ -120,11 +120,11 @@ class PreviewRenderer:
             painter.drawText(
                 QRectF(layout.brennan_pn_rect.x, layout.brennan_pn_rect.y,
                        layout.brennan_pn_rect.width, layout.brennan_pn_rect.height),
-                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 label.brennan_part_number,
             )
 
-        # Description
+        # Description (left-aligned, small)
         if label.description:
             fs = self._auto_font_size(label.description, layout.description_rect.width, 6)
             painter.setFont(QFont("Helvetica", fs))
@@ -132,7 +132,7 @@ class PreviewRenderer:
             painter.drawText(
                 QRectF(layout.description_rect.x, layout.description_rect.y,
                        layout.description_rect.width, layout.description_rect.height),
-                Qt.AlignmentFlag.AlignCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 label.description,
             )
 

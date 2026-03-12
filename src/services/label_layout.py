@@ -36,13 +36,21 @@ class Rect:
 
 @dataclass(frozen=True)
 class CellLayout:
-    """Sub-regions within a single label cell."""
-    image_rect: Rect      # part image (top-left)
-    logo_rect: Rect       # logo (top-right)
-    qr_rect: Rect         # QR code (bottom-left)
-    customer_pn_rect: Rect  # customer part number text zone
-    brennan_pn_rect: Rect   # Brennan part number text zone (large, bold)
-    description_rect: Rect  # description text zone
+    """Sub-regions within a single label cell.
+
+    Layout matches the reference image:
+    +----------------------------------------------+
+    | [IMG]  Customer Part #           [LOGO]      |
+    | [IMG]  BRENNAN PART # (bold)                 |
+    | [QR]   Description (small)                   |
+    +----------------------------------------------+
+    """
+    image_rect: Rect      # part image (left column, top half)
+    logo_rect: Rect       # logo (top-right corner)
+    qr_rect: Rect         # QR code (left column, bottom half)
+    customer_pn_rect: Rect  # customer part number text zone (top row)
+    brennan_pn_rect: Rect   # Brennan part number text zone (middle, large bold)
+    description_rect: Rect  # description text zone (bottom row)
 
 
 class LabelLayoutService:
@@ -71,33 +79,31 @@ class LabelLayoutService:
     def compute_cell_layout(self, cell: Rect) -> CellLayout:
         """Compute sub-regions within a label cell.
 
-        Layout adapts proportionally to cell size.
+        Layout matches the reference image:
+        - Left column (~28%): part image (top) + QR code (bottom)
+        - Center area: customer# (top) + Brennan# (middle, large bold) + description (bottom)
+        - Logo: small, top-right corner
         """
         w = cell.width
         h = cell.height
-        pad = min(w, h) * 0.04  # 4% padding
+        pad = min(w, h) * 0.03
 
-        # Icon/image sizes scale with cell height
-        icon_size = h * 0.35
-        qr_size = h * 0.42
+        # Left column for image/QR takes ~28% of width
+        left_col_w = w * 0.28
+        # Logo is a small square in the top-right corner
+        logo_size = h * 0.28
 
-        # Part image: top-left
+        # Part image: left column, top portion
+        img_size = min(left_col_w - 2 * pad, h * 0.52)
         image_rect = Rect(
             cell.x + pad,
-            cell.top - pad - icon_size,
-            icon_size,
-            icon_size,
+            cell.top - pad - img_size,
+            img_size,
+            img_size,
         )
 
-        # Logo: top-right
-        logo_rect = Rect(
-            cell.right - pad - icon_size,
-            cell.top - pad - icon_size,
-            icon_size,
-            icon_size,
-        )
-
-        # QR code: bottom-left
+        # QR code: left column, bottom portion
+        qr_size = min(left_col_w - 2 * pad, h * 0.40)
         qr_rect = Rect(
             cell.x + pad,
             cell.y + pad,
@@ -105,32 +111,42 @@ class LabelLayoutService:
             qr_size,
         )
 
-        # Text zones fill remaining space
-        text_left = cell.x + pad + icon_size + pad
-        text_right = cell.right - pad - icon_size - pad
-        text_width = text_right - text_left
+        # Logo: top-right corner
+        logo_rect = Rect(
+            cell.right - pad - logo_size,
+            cell.top - pad - logo_size,
+            logo_size,
+            logo_size,
+        )
 
-        # Vertical split: customer_pn top third, brennan_pn middle, description bottom
+        # Text area: right of left column, left of logo
+        text_left = cell.x + left_col_w
+        text_right = cell.right - pad - logo_size - pad
+        text_width = max(text_right - text_left, w * 0.3)
+
+        # Vertical text zones
         text_top = cell.top - pad
-        text_bottom = cell.y + pad
-        text_height = text_top - text_bottom
+        text_h = text_top - (cell.y + pad)
 
-        row_h = text_height / 3.0
-
+        # Customer P/N: top 25%
+        cust_h = text_h * 0.25
         customer_pn_rect = Rect(
-            text_left, text_top - row_h,
-            text_width, row_h,
+            text_left, text_top - cust_h,
+            text_width, cust_h,
         )
+
+        # Brennan P/N: middle 45% (the main bold number)
+        brennan_h = text_h * 0.45
         brennan_pn_rect = Rect(
-            text_left, text_top - 2 * row_h,
-            text_width, row_h,
+            text_left, text_top - cust_h - brennan_h,
+            text_width, brennan_h,
         )
-        # Description spans wider — from QR right edge to cell right
-        desc_left = cell.x + pad + qr_size + pad
-        desc_width = cell.right - pad - desc_left
+
+        # Description: bottom 30%
+        desc_h = text_h * 0.30
         description_rect = Rect(
-            desc_left, cell.y + pad,
-            desc_width, qr_size,
+            text_left, cell.y + pad,
+            text_width, desc_h,
         )
 
         return CellLayout(

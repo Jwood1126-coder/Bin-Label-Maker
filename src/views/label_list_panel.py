@@ -16,13 +16,15 @@ class LabelListPanel(QWidget):
     remove_requested = Signal(int)  # emits index
     duplicate_requested = Signal(int)
     fill_sheet_requested = Signal()
+    bulk_search_requested = Signal()
+    import_csv_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel("Labels"))
 
-        # Button bar
+        # Top button row: add/remove/dup/fill
         btn_row = QHBoxLayout()
         self._add_btn = QPushButton("+ Add")
         self._add_btn.clicked.connect(self.add_requested.emit)
@@ -41,6 +43,18 @@ class LabelListPanel(QWidget):
         btn_row.addWidget(self._fill_btn)
 
         layout.addLayout(btn_row)
+
+        # Second row: search parts + import CSV
+        btn_row2 = QHBoxLayout()
+        self._search_btn = QPushButton("Search Parts...")
+        self._search_btn.clicked.connect(self.bulk_search_requested.emit)
+        btn_row2.addWidget(self._search_btn)
+
+        self._import_btn = QPushButton("Import CSV/Excel...")
+        self._import_btn.clicked.connect(self.import_csv_requested.emit)
+        btn_row2.addWidget(self._import_btn)
+
+        layout.addLayout(btn_row2)
 
         # Table
         self._table = QTableWidget(0, 3)

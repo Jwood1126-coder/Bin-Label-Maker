@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
     QMenuBar, QFileDialog, QMessageBox, QLabel, QLineEdit,
     QFormLayout, QPushButton, QStatusBar, QGroupBox, QComboBox,
-    QInputDialog,
+    QInputDialog, QSizePolicy,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QPixmap
@@ -21,6 +21,8 @@ from src.views.avery_selector import AverySelector
 from src.views.label_editor import LabelEditor, LookupResultsDialog
 from src.views.label_list_panel import LabelListPanel
 from src.views.preview_panel import PreviewPanel
+from src.views.bulk_search_dialog import BulkSearchDialog
+from src.services.csv_importer import import_labels_from_file
 
 
 class MainWindow(QMainWindow):
@@ -41,7 +43,8 @@ class MainWindow(QMainWindow):
         self._current_project_name: str = ""
 
         self.setWindowTitle("Bin Label Maker - Brennan Industries")
-        self.setMinimumSize(1100, 700)
+        self.setMinimumSize(900, 600)
+        self.resize(1200, 800)
 
         # Register this window as the view for the label presenter
         self.label_presenter.set_view(self)
@@ -77,6 +80,13 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
+        import_csv_action = QAction("Import Parts from CSV/Excel...", self)
+        import_csv_action.setShortcut("Ctrl+I")
+        import_csv_action.triggered.connect(self._on_import_csv)
+        file_menu.addAction(import_csv_action)
+
+        file_menu.addSeparator()
+
         export_action = QAction("Export PDF...", self)
         export_action.setShortcut("Ctrl+E")
         export_action.triggered.connect(self._on_export_pdf)
@@ -93,10 +103,14 @@ class MainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(4, 4, 4, 4)
 
         # Left panel: project bar + template settings + label list + editor
         left_panel = QWidget()
+        left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(4)
 
         # ---- Project bar (like Drawing-Generator) ----
         project_group = QGroupBox("Customer Project")
@@ -174,24 +188,27 @@ class MainWindow(QMainWindow):
 
         left_layout.addWidget(settings_group)
 
-        # Label list
+        # Label list (takes most space)
         self._label_list = LabelListPanel()
-        left_layout.addWidget(self._label_list, 1)
+        self._label_list.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        left_layout.addWidget(self._label_list, 3)
 
         # Label editor
         self._label_editor = LabelEditor()
-        left_layout.addWidget(self._label_editor)
+        left_layout.addWidget(self._label_editor, 0)
 
         # Right panel: preview
         self._preview = PreviewPanel()
+        self._preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._preview.set_render_callback(self._render_preview_page)
 
         # Splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(self._preview)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 3)
+        splitter.setSizes([450, 750])
 
         main_layout.addWidget(splitter)
 
@@ -213,6 +230,8 @@ class MainWindow(QMainWindow):
         self._label_list.remove_requested.connect(self.label_presenter.remove_label)
         self._label_list.duplicate_requested.connect(self.label_presenter.duplicate_label)
         self._label_list.fill_sheet_requested.connect(self.label_presenter.fill_sheet)
+        self._label_list.bulk_search_requested.connect(self._on_bulk_search)
+        self._label_list.import_csv_requested.connect(self._on_import_csv)
 
         # Label editor
         self._label_editor.label_changed.connect(self._on_editor_changed)
@@ -339,6 +358,49 @@ class MainWindow(QMainWindow):
         if path:
             self._logo_label.setText(path.split("/")[-1])
             self.label_presenter.set_logo_path(path)
+
+    # --- CSV/Excel import ---
+
+    def _on_import_csv(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Parts from CSV/Excel", "",
+            "Spreadsheets (*.csv *.xlsx *.xls);;CSV Files (*.csv);;Excel Files (*.xlsx *.xls);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            labels = import_labels_from_file(path)
+            if not labels:
+                QMessageBox.warning(self, "Import", "No labels found in the file. "
+                    "Expected columns: brennan_part_number, customer_part_number, description")
+                return
+            for label in labels:
+                self.label_presenter.template.labels.append(label)
+            self.label_presenter._current_index = len(self.label_presenter.template.labels) - 1
+            self.label_presenter._notify_list_changed()
+            self.label_presenter._notify_label_selected()
+            self._status_label.setText(f"Imported {len(labels)} labels from {path.split('/')[-1]}")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to import file:\n{e}")
+
+    # --- Bulk search ---
+
+    def _on_bulk_search(self) -> None:
+        dialog = BulkSearchDialog(self.label_presenter.data_source, self)
+        if dialog.exec():
+            selected = dialog.get_selected_parts()
+            if selected:
+                for part in selected:
+                    label = LabelData(
+                        brennan_part_number=part.get("brennan_part_number", ""),
+                        customer_part_number=part.get("customer_part_number", ""),
+                        description=part.get("description", ""),
+                    )
+                    self.label_presenter.template.labels.append(label)
+                self.label_presenter._current_index = len(self.label_presenter.template.labels) - 1
+                self.label_presenter._notify_list_changed()
+                self.label_presenter._notify_label_selected()
+                self._status_label.setText(f"Added {len(selected)} labels from search")
 
     # --- Editor change handler ---
 

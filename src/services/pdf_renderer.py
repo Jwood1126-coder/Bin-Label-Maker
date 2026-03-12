@@ -80,38 +80,38 @@ class PDFRenderer:
             )
             self._draw_pil_image(canvas, qr_img, layout.qr_rect)
 
-        # Customer part number (top-center, small)
+        # Customer part number (top, left-aligned)
         if label.customer_part_number:
             font_size = self._auto_font_size(
-                label.customer_part_number, layout.customer_pn_rect.width, max_size=7
+                label.customer_part_number, layout.customer_pn_rect.width, max_size=8
             )
             canvas.setFont("Helvetica", font_size)
-            canvas.drawCentredString(
-                layout.customer_pn_rect.cx,
+            canvas.drawString(
+                layout.customer_pn_rect.x + 2,
                 layout.customer_pn_rect.cy - font_size * 0.35,
                 label.customer_part_number,
             )
 
-        # Brennan part number (center, large bold)
+        # Brennan part number (center, large bold, left-aligned)
         if label.brennan_part_number:
             font_size = self._auto_font_size(
                 label.brennan_part_number, layout.brennan_pn_rect.width, max_size=14
             )
             canvas.setFont("Helvetica-Bold", font_size)
-            canvas.drawCentredString(
-                layout.brennan_pn_rect.cx,
+            canvas.drawString(
+                layout.brennan_pn_rect.x + 2,
                 layout.brennan_pn_rect.cy - font_size * 0.35,
                 label.brennan_part_number,
             )
 
-        # Description (bottom area, small)
+        # Description (bottom, left-aligned, small)
         if label.description:
             font_size = self._auto_font_size(
                 label.description, layout.description_rect.width, max_size=6
             )
             canvas.setFont("Helvetica", font_size)
-            canvas.drawCentredString(
-                layout.description_rect.cx,
+            canvas.drawString(
+                layout.description_rect.x + 2,
                 layout.description_rect.cy - font_size * 0.35,
                 label.description,
             )

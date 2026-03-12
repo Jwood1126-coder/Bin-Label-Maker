@@ -26,6 +26,8 @@ a = Analysis(
         'reportlab.pdfbase._fontdata',
         'qrcode',
         'PIL',
+        'openpyxl',
+        'requests',
     ],
     hookspath=[],
     hooksconfig={},

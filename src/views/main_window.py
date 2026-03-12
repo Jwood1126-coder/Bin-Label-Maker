@@ -35,31 +35,44 @@ class _ImageDownloadWorker(QObject):
     """Background worker for downloading images without blocking the UI."""
     finished = Signal(list)  # emits list of LabelData
     progress = Signal(int, int)  # current, total
+    error = Signal(str)  # emits error message on failure
 
-    def __init__(self, parts: list, resolve_fn):
+    def __init__(self, parts: list, xref_key: str):
         super().__init__()
         self._parts = parts
-        self._resolve_fn = resolve_fn
+        self._xref_key = xref_key  # captured from main thread before start
+
+    def _resolve_customer_pn(self, part: dict) -> str:
+        xrefs = part.get("xrefs", {})
+        if self._xref_key and xrefs:
+            return xrefs.get(self._xref_key, "")
+        return part.get("customer_part_number", "")
 
     def run(self) -> None:
-        labels = []
-        total = len(self._parts)
-        for i, part in enumerate(self._parts):
-            image_path = None
-            image_url = part.get("image_url")
-            if image_url:
-                image_path = download_image(image_url)
+        try:
+            labels = []
+            total = len(self._parts)
+            for i, part in enumerate(self._parts):
+                image_path = None
+                image_url = part.get("image_url")
+                if image_url:
+                    try:
+                        image_path = download_image(image_url)
+                    except Exception:
+                        pass  # skip failed image, label still works
 
-            label = LabelData(
-                brennan_part_number=part.get("brennan_part_number", ""),
-                customer_part_number=self._resolve_fn(part),
-                description=part.get("description", ""),
-                short_description=part.get("short_description", ""),
-                image_path=image_path,
-            )
-            labels.append(label)
-            self.progress.emit(i + 1, total)
-        self.finished.emit(labels)
+                label = LabelData(
+                    brennan_part_number=part.get("brennan_part_number", ""),
+                    customer_part_number=self._resolve_customer_pn(part),
+                    description=part.get("description", ""),
+                    short_description=part.get("short_description", ""),
+                    image_path=image_path,
+                )
+                labels.append(label)
+                self.progress.emit(i + 1, total)
+            self.finished.emit(labels)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 # Shared layout service instance (stateless — safe to reuse)
@@ -86,7 +99,7 @@ class MainWindow(QMainWindow):
         self._last_dir = str(Path.home() / "Documents")
 
         self.setWindowTitle("Bin Label Maker \u2014 Brennan Industries")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(780, 500)
         self.resize(1200, 800)
 
         # Register this window as the view for the label presenter
@@ -221,7 +234,7 @@ class MainWindow(QMainWindow):
 
         # Left panel: project bar + template settings + label list
         left_panel = QWidget()
-        left_panel.setMinimumWidth(320)
+        left_panel.setMinimumWidth(280)
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 4, 0)
         left_layout.setSpacing(4)
@@ -354,17 +367,20 @@ class MainWindow(QMainWindow):
 
         # Right panel: preview
         self._preview = PreviewPanel()
+        self._preview.setMinimumWidth(200)
         self._preview.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._preview.set_render_callback(self._render_preview_page)
 
-        # Splitter
+        # Splitter — left panel gets ~35% by default, preview stretches
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(left_panel)
         splitter.addWidget(self._preview)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([380, 600])
         splitter.setHandleWidth(6)
+        # Use proportional initial sizes based on window width
+        w = self.width()
+        splitter.setSizes([int(w * 0.35), int(w * 0.65)])
 
         content_layout.addWidget(splitter)
         main_layout.addWidget(content, 1)
@@ -583,14 +599,6 @@ class MainWindow(QMainWindow):
 
     # --- Bulk search ---
 
-    def _resolve_customer_pn(self, part: dict) -> str:
-        """Get the customer part number using the selected xref manufacturer."""
-        xref_key = self.label_presenter.template.xref_key
-        xrefs = part.get("xrefs", {})
-        if xref_key and xrefs:
-            return xrefs.get(xref_key, "")
-        return part.get("customer_part_number", "")
-
     def _on_bulk_search(self) -> None:
         xref_key = self.label_presenter.template.xref_key
         dialog = BulkSearchDialog(self.label_presenter.data_source, xref_key, self)
@@ -605,13 +613,17 @@ class MainWindow(QMainWindow):
         self._status_label.setText(f"Downloading images for {len(parts)} parts...")
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
 
+        # Capture xref_key now (thread-safe: don't access presenter from worker)
+        xref_key = self.label_presenter.template.xref_key
         self._download_thread = QThread()
-        self._download_worker = _ImageDownloadWorker(parts, self._resolve_customer_pn)
+        self._download_worker = _ImageDownloadWorker(parts, xref_key)
         self._download_worker.moveToThread(self._download_thread)
         self._download_thread.started.connect(self._download_worker.run)
         self._download_worker.progress.connect(self._on_download_progress)
         self._download_worker.finished.connect(self._on_download_finished)
         self._download_worker.finished.connect(self._download_thread.quit)
+        self._download_worker.error.connect(self._on_download_error)
+        self._download_worker.error.connect(self._download_thread.quit)
         self._download_thread.start()
 
     def _on_download_progress(self, current: int, total: int) -> None:
@@ -621,6 +633,14 @@ class MainWindow(QMainWindow):
         QApplication.restoreOverrideCursor()
         self.label_presenter.add_labels(labels)
         self._status_label.setText(f"Added {len(labels)} labels from search")
+        self._download_thread = None
+        self._download_worker = None
+
+    def _on_download_error(self, message: str) -> None:
+        QApplication.restoreOverrideCursor()
+        self._status_label.setText("Image download failed")
+        QMessageBox.warning(self, "Download Error",
+                            f"Failed to download part images:\n{message}")
         self._download_thread = None
         self._download_worker = None
 
@@ -700,7 +720,8 @@ class MainWindow(QMainWindow):
         if geo:
             positions = _layout_service.compute_label_positions(geo)
             self._preview.set_label_grid(
-                positions, geo.labels_per_page, template.start_offset
+                positions, geo.labels_per_page, template.start_offset,
+                page_height_pt=geo.page_height_pt,
             )
             # Update start offset max based on template
             self._start_offset_spin.blockSignals(True)

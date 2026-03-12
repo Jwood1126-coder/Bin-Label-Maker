@@ -2,6 +2,10 @@
 
 Renders the same layout as the PDF renderer but onto a QImage
 for display in the preview panel.
+
+NOTE: The layout engine uses ReportLab coordinates (origin at bottom-left,
+y increases upward). Qt uses top-left origin (y increases downward).
+All Rects from the layout engine must be flipped via _to_qt_rect().
 """
 import logging
 
@@ -13,7 +17,7 @@ from PySide6.QtGui import (
 from src.models.avery_templates import AVERY_TEMPLATES
 from src.models.template import Template
 from src.models.label_data import LabelData
-from src.services.label_layout import LabelLayoutService, CellLayout
+from src.services.label_layout import LabelLayoutService, CellLayout, Rect
 from src.services.qr_generator import QRGenerator
 from src.services.image_utils import load_image, scale_image_to_fit, image_to_bytes
 
@@ -29,12 +33,19 @@ class PreviewRenderer:
     def __init__(self, layout_service: LabelLayoutService, qr_generator: QRGenerator):
         self.layout = layout_service
         self.qr = qr_generator
+        self._page_h = 0.0  # set per render call
+
+    def _to_qt_rect(self, rect: Rect) -> QRectF:
+        """Convert a ReportLab Rect (bottom-left origin) to a Qt QRectF (top-left origin)."""
+        qt_y = self._page_h - rect.y - rect.height
+        return QRectF(rect.x, qt_y, rect.width, rect.height)
 
     def render(self, template: Template, page: int = 0) -> QPixmap:
         """Render one page of the template as a QPixmap."""
         geometry = AVERY_TEMPLATES[template.avery_template_id]
         positions = self.layout.compute_label_positions(geometry)
         per_page = geometry.labels_per_page
+        self._page_h = geometry.page_height_pt
 
         w = int(geometry.page_width_pt * PREVIEW_SCALE)
         h = int(geometry.page_height_pt * PREVIEW_SCALE)
@@ -52,11 +63,10 @@ class PreviewRenderer:
         # Draw label outlines and content
         label_start = page * per_page - template.start_offset
         for slot_idx, cell_rect in enumerate(positions):
-            # Draw light border for each label slot
+            # Draw light border for each label slot (flip y for Qt)
+            qt_rect = self._to_qt_rect(cell_rect)
             painter.setPen(QPen(QColor(220, 220, 220), 0.5))
-            painter.drawRect(QRectF(
-                cell_rect.x, cell_rect.y, cell_rect.width, cell_rect.height
-            ))
+            painter.drawRect(qt_rect)
 
             label_idx = label_start + slot_idx
             if label_idx < 0 or label_idx >= len(template.labels):
@@ -135,7 +145,7 @@ class PreviewRenderer:
         text: str,
         base_font: QFont,
         max_size: float,
-        rect,
+        rect: Rect,
         color: QColor,
     ) -> None:
         """Draw text auto-sized to fit, clipped to rect boundary."""
@@ -145,9 +155,9 @@ class PreviewRenderer:
         painter.setFont(font)
         painter.setPen(color)
 
-        # Clip to the rect so text never bleeds outside the label
+        # Convert ReportLab rect to Qt rect and clip
         painter.save()
-        target = QRectF(rect.x, rect.y, rect.width, rect.height)
+        target = self._to_qt_rect(rect)
         painter.setClipRect(target)
         painter.drawText(
             target,
@@ -156,7 +166,7 @@ class PreviewRenderer:
         )
         painter.restore()
 
-    def _draw_pil_image(self, painter: QPainter, pil_img, rect) -> None:
+    def _draw_pil_image(self, painter: QPainter, pil_img, rect: Rect) -> None:
         """Draw a PIL Image into the given rect area."""
         scaled = scale_image_to_fit(
             pil_img, int(rect.width * 2), int(rect.height * 2)
@@ -164,7 +174,7 @@ class PreviewRenderer:
         data = image_to_bytes(scaled, "PNG")
         qimg = QImage()
         qimg.loadFromData(data)
-        target = QRectF(rect.x, rect.y, rect.width, rect.height)
+        target = self._to_qt_rect(rect)
         painter.drawImage(target, qimg)
 
     def _auto_font_size(

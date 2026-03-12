@@ -4,9 +4,12 @@ Colors sourced from https://brennaninc.com/ brand guidelines.
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPolygon
+from PySide6.QtCore import QPoint
 
 # ── Brand Colors ────────────────────────────────────────────
 BRENNAN_BLUE = "#006293"
@@ -47,6 +50,30 @@ def app_icon() -> QIcon:
     if os.path.exists(path):
         return QIcon(path)
     return QIcon()
+
+
+def _combo_arrow_path() -> str:
+    """Generate a small down-arrow PNG for QComboBox and return its path.
+
+    Qt QSS doesn't support CSS border-triangle tricks, so we draw a proper
+    arrow pixmap at startup and reference it via image: url(...).
+    """
+    arrow_dir = os.path.join(tempfile.gettempdir(), "bin_label_maker_assets")
+    os.makedirs(arrow_dir, exist_ok=True)
+    arrow_path = os.path.join(arrow_dir, "combo_arrow.png")
+    if os.path.isfile(arrow_path):
+        return arrow_path.replace("\\", "/")
+
+    pix = QPixmap(12, 8)
+    pix.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(BRENNAN_BLUE))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawPolygon(QPolygon([QPoint(1, 1), QPoint(11, 1), QPoint(6, 7)]))
+    painter.end()
+    pix.save(arrow_path, "PNG")
+    return arrow_path.replace("\\", "/")
 
 
 # ── Global Stylesheet ───────────────────────────────────────
@@ -184,6 +211,26 @@ QPushButton[cssClass="danger"]:hover {{
     background-color: #AA2222;
 }}
 
+/* ── Spin Boxes ────────────────────────────────────── */
+QSpinBox {{
+    background-color: {BRENNAN_WHITE};
+    border: 1px solid {BRENNAN_GRAY};
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+    min-height: 22px;
+}}
+
+QSpinBox:focus {{
+    border: 2px solid {BRENNAN_BLUE};
+}}
+
+QSpinBox::up-button, QSpinBox::down-button {{
+    width: 20px;
+    border: none;
+    background: transparent;
+}}
+
 /* ── Line Edits / Inputs ────────────────────────────── */
 QLineEdit {{
     background-color: {BRENNAN_WHITE};
@@ -227,11 +274,9 @@ QComboBox::drop-down {{
 }}
 
 QComboBox::down-arrow {{
-    width: 10px;
-    height: 6px;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid {BRENNAN_BLUE};
+    image: url({{COMBO_ARROW_PATH}});
+    width: 12px;
+    height: 8px;
 }}
 
 QComboBox QAbstractItemView {{
@@ -395,3 +440,12 @@ QLabel[cssClass="brand-subtitle"] {{
     font-weight: 400;
 }}
 """
+
+
+def get_stylesheet() -> str:
+    """Return the stylesheet with the combo arrow image path resolved.
+
+    Must be called after QApplication is created (needs QPainter).
+    """
+    arrow = _combo_arrow_path()
+    return STYLESHEET.replace("{COMBO_ARROW_PATH}", arrow)

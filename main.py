@@ -9,7 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from src.bootstrap import create_application
-from src.views.theme import STYLESHEET, app_icon
+from src.views.theme import get_stylesheet, app_icon
 
 
 def configure_logging() -> None:
@@ -34,7 +34,7 @@ def main() -> int:
 
     # Apply Brennan Industries brand theme
     app.setWindowIcon(app_icon())
-    app.setStyleSheet(STYLESHEET)
+    app.setStyleSheet(get_stylesheet())
 
     window = create_application()
     window.show()

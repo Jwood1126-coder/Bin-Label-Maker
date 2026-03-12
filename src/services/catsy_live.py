@@ -91,9 +91,13 @@ class LiveCatsyService(DataSource):
                     [{"attributeKey": "number", "operator": "is", "value": query}]
                 )
             else:
-                # Both "contains" and "starts_with" use the API's "contains" operator
+                # Both "contains" and "starts_with" use the API's "contains" operator.
+                # For starts_with, request more results since the API can't filter
+                # by prefix natively — we filter client-side from a larger pool.
+                limit = 500 if mode == SEARCH_STARTS_WITH else 100
                 products = self._filter_products(
-                    [{"attributeKey": "number", "operator": "contains", "value": query}]
+                    [{"attributeKey": "number", "operator": "contains", "value": query}],
+                    max_results=limit,
                 )
 
             # Client-side filter for starts_with (API doesn't support it natively)

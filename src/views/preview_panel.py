@@ -106,6 +106,7 @@ class PreviewPanel(QWidget):
         self._label_positions = None  # set externally
         self._per_page = 0
         self._start_offset = 0
+        self._page_height_pt = 792.0  # US Letter default
 
         # Debounce timer for preview updates
         self._debounce_timer = QTimer()
@@ -116,14 +117,17 @@ class PreviewPanel(QWidget):
     def set_render_callback(self, callback) -> None:
         self._render_callback = callback
 
-    def set_label_grid(self, positions, per_page: int, start_offset: int) -> None:
+    def set_label_grid(self, positions, per_page: int, start_offset: int,
+                       page_height_pt: float = 792.0) -> None:
         """Set the label grid positions for zoom-to-label support.
 
         positions: list of Rect from LabelLayoutService.compute_label_positions()
+        page_height_pt: page height in points (needed for y-coordinate flip)
         """
         self._label_positions = positions
         self._per_page = per_page
         self._start_offset = start_offset
+        self._page_height_pt = page_height_pt
 
     def set_total_pages(self, total: int) -> None:
         self._total_pages = max(1, total)
@@ -154,10 +158,11 @@ class PreviewPanel(QWidget):
             return
 
         pos = self._label_positions[page_slot]
-        # Convert from points to preview pixels (preview renders at 2x scale)
+        # Flip y from ReportLab (bottom-up) to Qt (top-down), then scale to preview pixels
+        qt_y = self._page_height_pt - pos.y - pos.height
         rect = QRectF(
             pos.x * _PREVIEW_SCALE,
-            pos.y * _PREVIEW_SCALE,
+            qt_y * _PREVIEW_SCALE,
             pos.width * _PREVIEW_SCALE,
             pos.height * _PREVIEW_SCALE,
         )

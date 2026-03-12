@@ -1,5 +1,6 @@
 """Composition root — single place where all dependencies are wired."""
 import logging
+import os
 
 from src.services.label_layout import LabelLayoutService
 from src.services.qr_generator import QRGenerator
@@ -12,6 +13,7 @@ from src.services.catsy_live import LiveCatsyService
 from src.presenters.label_presenter import LabelPresenter
 from src.presenters.main_presenter import MainPresenter
 from src.views.main_window import MainWindow
+from src.views.theme import logo_label_path
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +48,13 @@ def create_application() -> MainWindow:
     project_manager = ProjectManager()
     data_source = _create_data_source()
 
+    # Default logo for new templates
+    default_logo = logo_label_path()
+    if not os.path.exists(default_logo):
+        default_logo = None
+
     # Presenters
-    label_presenter = LabelPresenter(pdf_renderer, template_io, data_source)
+    label_presenter = LabelPresenter(pdf_renderer, template_io, data_source, default_logo)
     main_presenter = MainPresenter(label_presenter)
 
     # Main window (registers itself as the view)

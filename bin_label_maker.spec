@@ -40,7 +40,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 # Use icon only if it exists
-icon_path = 'assets/app_icon.ico'
+icon_path = 'assets/brennan_icon.png'
 icon_arg = [icon_path] if os.path.isfile(icon_path) else []
 
 exe = EXE(

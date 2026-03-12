@@ -1,11 +1,12 @@
 """Main application window assembling all panels and connecting to presenters."""
+import os
 from typing import Optional, List
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QSplitter,
-    QMenuBar, QFileDialog, QMessageBox, QLabel, QLineEdit,
+    QFileDialog, QMessageBox, QLabel, QLineEdit,
     QFormLayout, QPushButton, QStatusBar, QGroupBox, QComboBox,
-    QInputDialog, QSizePolicy,
+    QInputDialog, QSizePolicy, QFrame,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QPixmap
@@ -22,6 +23,7 @@ from src.views.label_editor import LabelEditor, LookupResultsDialog
 from src.views.label_list_panel import LabelListPanel
 from src.views.preview_panel import PreviewPanel
 from src.views.bulk_search_dialog import BulkSearchDialog
+from src.views.theme import logo_full_path, BRENNAN_BLUE, BRENNAN_WHITE
 from src.services.csv_importer import import_labels_from_file
 
 
@@ -60,7 +62,7 @@ class MainWindow(QMainWindow):
     def _build_menu_bar(self) -> None:
         menu_bar = self.menuBar()
 
-        file_menu = menu_bar.addMenu("File")
+        file_menu = menu_bar.addMenu("  File  ")
 
         new_action = QAction("New Template", self)
         new_action.setShortcut("Ctrl+N")
@@ -102,21 +104,61 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(4, 4, 4, 4)
+        main_layout = QVBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # ── Brand header bar ──
+        header = QFrame()
+        header.setObjectName("brandHeader")
+        header.setFixedHeight(56)
+        header.setStyleSheet(f"""
+            QFrame#brandHeader {{
+                background-color: {BRENNAN_WHITE};
+                border-bottom: 3px solid {BRENNAN_BLUE};
+            }}
+        """)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(12, 4, 12, 4)
+
+        logo_path = logo_full_path()
+        if os.path.exists(logo_path):
+            logo_label = QLabel()
+            pix = QPixmap(logo_path)
+            logo_label.setPixmap(pix.scaledToHeight(42, Qt.TransformationMode.SmoothTransformation))
+            header_layout.addWidget(logo_label)
+
+        header_layout.addStretch()
+
+        title_label = QLabel("Bin Label Maker")
+        title_label.setStyleSheet(f"""
+            font-size: 20px;
+            font-weight: 700;
+            color: {BRENNAN_BLUE};
+            letter-spacing: 0.5px;
+        """)
+        header_layout.addWidget(title_label)
+
+        main_layout.addWidget(header)
+
+        # ── Content area ──
+        content = QWidget()
+        content_layout = QHBoxLayout(content)
+        content_layout.setContentsMargins(8, 8, 8, 4)
+        content_layout.setSpacing(0)
 
         # Left panel: project bar + template settings + label list + editor
         left_panel = QWidget()
         left_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(4)
+        left_layout.setContentsMargins(0, 0, 4, 0)
+        left_layout.setSpacing(6)
 
-        # ---- Project bar (like Drawing-Generator) ----
+        # ---- Project bar ----
         project_group = QGroupBox("Customer Project")
         project_layout = QVBoxLayout(project_group)
+        project_layout.setSpacing(6)
 
-        # Project selector row
         proj_sel_row = QHBoxLayout()
         self._project_combo = QComboBox()
         self._project_combo.setEditable(True)
@@ -126,27 +168,29 @@ class MainWindow(QMainWindow):
         proj_sel_row.addWidget(self._project_combo, 1)
 
         save_btn = QPushButton("Save")
-        save_btn.setFixedWidth(55)
+        save_btn.setFixedWidth(60)
         save_btn.clicked.connect(self._on_project_save)
         proj_sel_row.addWidget(save_btn)
 
         load_btn = QPushButton("Load")
-        load_btn.setFixedWidth(55)
+        load_btn.setFixedWidth(60)
+        load_btn.setProperty("cssClass", "secondary")
         load_btn.clicked.connect(self._on_project_load)
         proj_sel_row.addWidget(load_btn)
 
         delete_btn = QPushButton("Delete")
-        delete_btn.setFixedWidth(55)
+        delete_btn.setFixedWidth(60)
+        delete_btn.setProperty("cssClass", "danger")
         delete_btn.clicked.connect(self._on_project_delete)
         proj_sel_row.addWidget(delete_btn)
 
         project_layout.addLayout(proj_sel_row)
 
-        # Save As button
         save_as_row = QHBoxLayout()
         save_as_row.addStretch()
         save_as_btn = QPushButton("Save As...")
-        save_as_btn.setFixedWidth(80)
+        save_as_btn.setFixedWidth(85)
+        save_as_btn.setProperty("cssClass", "secondary")
         save_as_btn.clicked.connect(self._on_project_save_as)
         save_as_row.addWidget(save_as_btn)
         project_layout.addLayout(save_as_row)
@@ -156,6 +200,7 @@ class MainWindow(QMainWindow):
         # ---- Template settings group ----
         settings_group = QGroupBox("Template Settings")
         settings_layout = QFormLayout(settings_group)
+        settings_layout.setSpacing(8)
 
         self._customer_name = QLineEdit()
         self._customer_name.setPlaceholderText("Customer name")
@@ -176,9 +221,11 @@ class MainWindow(QMainWindow):
         logo_row = QHBoxLayout(logo_row_widget)
         logo_row.setContentsMargins(0, 0, 0, 0)
         self._logo_label = QLabel("No logo selected")
-        self._logo_label.setStyleSheet("color: #666;")
+        self._logo_label.setStyleSheet("color: #888; font-style: italic;")
         logo_row.addWidget(self._logo_label, 1)
         logo_btn = QPushButton("Browse...")
+        logo_btn.setProperty("cssClass", "secondary")
+        logo_btn.setFixedWidth(80)
         logo_btn.clicked.connect(self._pick_logo)
         logo_row.addWidget(logo_btn)
         settings_layout.addRow("Logo:", logo_row_widget)
@@ -210,7 +257,8 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 3)
         splitter.setSizes([450, 750])
 
-        main_layout.addWidget(splitter)
+        content_layout.addWidget(splitter)
+        main_layout.addWidget(content, 1)
 
     def _build_status_bar(self) -> None:
         self._status_bar = QStatusBar()
@@ -237,7 +285,7 @@ class MainWindow(QMainWindow):
         self._label_editor.label_changed.connect(self._on_editor_changed)
         self._label_editor.lookup_requested.connect(self._on_lookup_requested)
 
-    # --- Project management (Drawing-Generator style) ---
+    # --- Project management ---
 
     def _refresh_project_list(self) -> None:
         projects = self.project_manager.list_projects()
@@ -357,6 +405,7 @@ class MainWindow(QMainWindow):
         )
         if path:
             self._logo_label.setText(path.split("/")[-1])
+            self._logo_label.setStyleSheet("color: #333;")
             self.label_presenter.set_logo_path(path)
 
     # --- CSV/Excel import ---
@@ -435,8 +484,10 @@ class MainWindow(QMainWindow):
         if template.logo_path:
             name = template.logo_path.split("/")[-1] if "/" in template.logo_path else template.logo_path.split("\\")[-1]
             self._logo_label.setText(name)
+            self._logo_label.setStyleSheet("color: #333;")
         else:
             self._logo_label.setText("No logo selected")
+            self._logo_label.setStyleSheet("color: #888; font-style: italic;")
 
         self._label_list.update_labels(template.labels)
         self._label_editor.clear()
@@ -479,6 +530,6 @@ class MainWindow(QMainWindow):
         pages = max(1, (count + template.start_offset + per_page - 1) // per_page) if per_page else 1
         project = self._current_project_name or template.customer_name or "Untitled"
         self._status_label.setText(
-            f"{project} | {name} | {count} labels | {pages} page(s)"
+            f"  {project}  |  {name}  |  {count} labels  |  {pages} page(s)"
         )
         self._preview.set_total_pages(pages)

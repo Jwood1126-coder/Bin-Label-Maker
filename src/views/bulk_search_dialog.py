@@ -20,12 +20,14 @@ class BulkSearchDialog(QDialog):
 
         self.setWindowTitle("Search & Add Parts")
         self.setMinimumSize(650, 500)
-        self.resize(700, 550)
+        self.resize(750, 600)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(10)
 
         # Search bar
         search_row = QHBoxLayout()
+        search_row.setSpacing(4)
         self._search_input = QLineEdit()
         self._search_input.setPlaceholderText("Search by part number, customer number, or description...")
         self._search_input.returnPressed.connect(self._do_search)
@@ -39,14 +41,17 @@ class BulkSearchDialog(QDialog):
         # Select all / none
         select_row = QHBoxLayout()
         self._result_count = QLabel("")
+        self._result_count.setStyleSheet("font-weight: 500; color: #555;")
         select_row.addWidget(self._result_count)
         select_row.addStretch()
 
         select_all_btn = QPushButton("Select All")
+        select_all_btn.setProperty("cssClass", "secondary")
         select_all_btn.clicked.connect(self._select_all)
         select_row.addWidget(select_all_btn)
 
         select_none_btn = QPushButton("Select None")
+        select_none_btn.setProperty("cssClass", "secondary")
         select_none_btn.clicked.connect(self._select_none)
         select_row.addWidget(select_none_btn)
         layout.addLayout(select_row)
@@ -60,6 +65,8 @@ class BulkSearchDialog(QDialog):
         self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
         layout.addWidget(self._table)
 
         # Dialog buttons

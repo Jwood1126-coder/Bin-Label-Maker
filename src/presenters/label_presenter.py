@@ -26,10 +26,12 @@ class LabelPresenter:
         pdf_renderer: PDFRenderer,
         template_io: TemplateIO,
         data_source: DataSource,
+        default_logo_path: Optional[str] = None,
     ):
         self.pdf_renderer = pdf_renderer
         self.template_io = template_io
         self.data_source = data_source
+        self._default_logo_path = default_logo_path
         self.template = Template()
         self._current_index: int = -1
         self._view = None  # set by main_window after construction
@@ -48,6 +50,8 @@ class LabelPresenter:
 
     def new_template(self) -> None:
         self.template = Template()
+        if self._default_logo_path:
+            self.template.logo_path = self._default_logo_path
         self._current_index = -1
         self._notify_template_changed()
 

@@ -2,10 +2,9 @@
 from PySide6.QtWidgets import (
     QWidget, QFormLayout, QLineEdit, QPushButton, QFileDialog,
     QHBoxLayout, QLabel, QVBoxLayout, QDialog, QListWidget, QListWidgetItem,
-    QDialogButtonBox,
+    QDialogButtonBox, QGroupBox,
 )
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QPixmap
 
 
 class LabelEditor(QWidget):
@@ -19,9 +18,14 @@ class LabelEditor(QWidget):
         self._updating = False  # guard against feedback loops
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel("Label Details"))
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        group = QGroupBox("Label Details")
+        group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(6)
 
         form = QFormLayout()
+        form.setSpacing(8)
 
         self._brennan_pn = QLineEdit()
         self._brennan_pn.setPlaceholderText("e.g. 2404-04-02")
@@ -41,26 +45,29 @@ class LabelEditor(QWidget):
         # Image picker
         img_row = QHBoxLayout()
         self._image_path_label = QLabel("No image selected")
-        self._image_path_label.setStyleSheet("color: #666;")
+        self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
         img_row.addWidget(self._image_path_label, 1)
         self._pick_image_btn = QPushButton("Browse...")
+        self._pick_image_btn.setProperty("cssClass", "secondary")
+        self._pick_image_btn.setFixedWidth(80)
         self._pick_image_btn.clicked.connect(self._pick_image)
         img_row.addWidget(self._pick_image_btn)
         form.addRow("Part Image:", img_row)
 
-        layout.addLayout(form)
+        group_layout.addLayout(form)
 
         # Catsy lookup
         lookup_row = QHBoxLayout()
+        lookup_row.setSpacing(4)
         self._lookup_input = QLineEdit()
         self._lookup_input.setPlaceholderText("Search by part number...")
         lookup_row.addWidget(self._lookup_input, 1)
         self._lookup_btn = QPushButton("Lookup in Catsy")
         self._lookup_btn.clicked.connect(self._on_lookup)
         lookup_row.addWidget(self._lookup_btn)
-        layout.addLayout(lookup_row)
+        group_layout.addLayout(lookup_row)
 
-        layout.addStretch()
+        layout.addWidget(group)
 
     def _on_field_changed(self) -> None:
         if not self._updating:
@@ -73,6 +80,7 @@ class LabelEditor(QWidget):
         )
         if path:
             self._image_path_label.setText(path.split("/")[-1])
+            self._image_path_label.setStyleSheet("color: #333;")
             self._image_path = path
             self.label_changed.emit()
 
@@ -96,9 +104,12 @@ class LabelEditor(QWidget):
         self._description.setText(description)
         self._image_path = image_path
         if image_path:
-            self._image_path_label.setText(image_path.split("/")[-1] if "/" in image_path else image_path.split("\\")[-1])
+            name = image_path.split("/")[-1] if "/" in image_path else image_path.split("\\")[-1]
+            self._image_path_label.setText(name)
+            self._image_path_label.setStyleSheet("color: #333;")
         else:
             self._image_path_label.setText("No image selected")
+            self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
         self._updating = False
 
     def clear(self) -> None:
@@ -108,6 +119,7 @@ class LabelEditor(QWidget):
         self._description.clear()
         self._image_path = None
         self._image_path_label.setText("No image selected")
+        self._image_path_label.setStyleSheet("color: #888; font-style: italic;")
         self._updating = False
 
     def set_enabled(self, enabled: bool) -> None:
@@ -125,16 +137,22 @@ class LookupResultsDialog(QDialog):
     def __init__(self, results: list, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Catsy Lookup Results")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500)
+        self.resize(550, 400)
         self.selected_part_number = None
 
         layout = QVBoxLayout(self)
-        layout.addWidget(QLabel(f"Found {len(results)} result(s):"))
+        layout.setSpacing(10)
+
+        header = QLabel(f"Found {len(results)} result(s):")
+        header.setProperty("cssClass", "section-header")
+        layout.addWidget(header)
 
         self._list = QListWidget()
+        self._list.setAlternatingRowColors(True)
         for r in results:
             item = QListWidgetItem(
-                f"{r['brennan_part_number']} | {r['customer_part_number']} | {r['description']}"
+                f"{r['brennan_part_number']}  |  {r['customer_part_number']}  |  {r['description']}"
             )
             item.setData(256, r["brennan_part_number"])  # Qt.UserRole
             self._list.addItem(item)

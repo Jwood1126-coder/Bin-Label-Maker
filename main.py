@@ -9,6 +9,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from src.bootstrap import create_application
+from src.views.theme import STYLESHEET, app_icon
 
 
 def configure_logging() -> None:
@@ -30,6 +31,10 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("Bin Label Maker")
     app.setOrganizationName("Brennan Industries")
+
+    # Apply Brennan Industries brand theme
+    app.setWindowIcon(app_icon())
+    app.setStyleSheet(STYLESHEET)
 
     window = create_application()
     window.show()

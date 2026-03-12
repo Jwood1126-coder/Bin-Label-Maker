@@ -3,19 +3,18 @@
 # Build with: pyinstaller bin_label_maker.spec
 # Produces a SINGLE .exe file (no folder)
 
-import PySide6
 import os
 
-pyside6_path = os.path.dirname(PySide6.__file__)
+# Collect data files, skipping missing directories
+datas = []
+if os.path.isdir('assets'):
+    datas.append(('assets', 'assets'))
 
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('assets', 'assets'),
-        ('src', 'src'),
-    ],
+    datas=datas,
     hiddenimports=[
         'PySide6.QtCore',
         'PySide6.QtGui',
@@ -23,6 +22,8 @@ a = Analysis(
         'reportlab',
         'reportlab.lib',
         'reportlab.pdfgen',
+        'reportlab.pdfbase',
+        'reportlab.pdfbase._fontdata',
         'qrcode',
         'PIL',
     ],
@@ -35,6 +36,10 @@ a = Analysis(
 )
 
 pyz = PYZ(a.pure)
+
+# Use icon only if it exists
+icon_path = 'assets/app_icon.ico'
+icon_arg = [icon_path] if os.path.isfile(icon_path) else []
 
 exe = EXE(
     pyz,
@@ -55,5 +60,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets/app_icon.ico'],
+    icon=icon_arg,
 )

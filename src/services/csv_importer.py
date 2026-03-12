@@ -10,8 +10,23 @@ from src.models.label_data import LabelData
 logger = logging.getLogger(__name__)
 
 # Column name aliases (case-insensitive matching)
-_BRENNAN_ALIASES = {"brennan_part_number", "brennan_pn", "brennan part number", "brennan part #", "brennan p/n", "brennan", "part number", "part_number", "part #", "part#", "pn"}
-_CUSTOMER_ALIASES = {"customer_part_number", "customer_pn", "customer part number", "customer part #", "customer p/n", "customer", "customer #", "customer#", "cust_pn", "cust pn"}
+_BRENNAN_ALIASES = {
+    "brennan_part_number", "brennan_pn", "brennan part number", "brennan part #",
+    "brennan p/n", "brennan", "part number", "part_number", "part #", "part#", "pn",
+    "brennan #", "brennan#", "bpn", "part no", "part no.", "part_no",
+}
+_CUSTOMER_ALIASES = {
+    "customer_part_number", "customer_pn", "customer part number", "customer part #",
+    "customer p/n", "customer", "customer #", "customer#", "cust_pn", "cust pn",
+    "cust part number", "cust part #", "cust p/n", "cust #", "cust#",
+    "customer number", "customer_number", "cust number", "cust_number",
+    "customer no", "customer no.", "cust no", "cust no.",
+    "cross reference", "cross_reference", "cross ref", "cross_ref", "xref",
+    "their part number", "their p/n", "their pn", "their #",
+    "oem", "oem part number", "oem pn", "oem #", "oem p/n",
+    "mfg part number", "mfg pn", "mfg #", "mfg p/n",
+    "manufacturer part number", "manufacturer pn",
+}
 _DESCRIPTION_ALIASES = {"description", "desc", "part description", "item description", "name"}
 _SHORT_DESC_ALIASES = {"short_description", "short_desc", "short description", "short desc", "compact description", "compact desc"}
 

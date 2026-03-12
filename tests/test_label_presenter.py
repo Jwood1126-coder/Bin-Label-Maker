@@ -280,3 +280,125 @@ class TestPreflightDuplicates:
         p.template.labels[0].brennan_part_number = "X-1"
         warnings = p.preflight_check()
         assert any("empty slot" in w for w in warnings)
+
+
+class TestXrefResolution:
+    def test_set_xref_key_updates_customer_pns(self):
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].brennan_part_number = "2404-04-02"
+        p.template.labels[0].xrefs = {
+            "parker_part_number": "PARKER-001",
+            "swagelok_part_number": "SWAG-001",
+        }
+        p.template.labels[0].customer_part_number = ""
+
+        p.set_xref_key("parker_part_number")
+        assert p.template.labels[0].customer_part_number == "PARKER-001"
+
+        p.set_xref_key("swagelok_part_number")
+        assert p.template.labels[0].customer_part_number == "SWAG-001"
+
+        p.set_xref_key("gates_part_number")
+        assert p.template.labels[0].customer_part_number == ""
+
+    def test_set_xref_key_no_xrefs_preserves_manual(self):
+        """Labels without xrefs (e.g. from CSV import) keep their manual customer P/N."""
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].customer_part_number = "MANUAL-PN"
+
+        p.set_xref_key("parker_part_number")
+        assert p.template.labels[0].customer_part_number == "MANUAL-PN"
+
+    def test_get_available_xref_keys(self):
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].xrefs = {"parker_part_number": "P-1", "gates_part_number": "G-1"}
+        p.add_label()
+        p.template.labels[1].xrefs = {"parker_part_number": "P-2", "swagelok_part_number": "S-2"}
+
+        keys = p.get_available_xref_keys()
+        assert keys == {"parker_part_number", "gates_part_number", "swagelok_part_number"}
+
+    def test_duplicate_preserves_xrefs(self):
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].xrefs = {"parker_part_number": "P-1"}
+        p.duplicate_label(0)
+        assert p.template.labels[1].xrefs == {"parker_part_number": "P-1"}
+        # Ensure it's a copy, not a shared reference
+        p.template.labels[1].xrefs["new_key"] = "val"
+        assert "new_key" not in p.template.labels[0].xrefs
+
+
+class TestMergeLabels:
+    def test_merge_updates_customer_pn(self):
+        """Merge should fill in customer P/N on matching Brennan P/Ns."""
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].brennan_part_number = "2404-04-02"
+        p.template.labels[0].description = "Existing desc"
+        p.add_label()
+        p.template.labels[1].brennan_part_number = "2404-06-04"
+
+        incoming = [
+            LabelData(brennan_part_number="2404-04-02", customer_part_number="CUST-001"),
+            LabelData(brennan_part_number="2404-06-04", customer_part_number="CUST-002"),
+        ]
+        updated, appended = p.merge_labels(incoming)
+        assert updated == 2
+        assert appended == 0
+        assert p.template.labels[0].customer_part_number == "CUST-001"
+        assert p.template.labels[0].description == "Existing desc"  # preserved
+        assert p.template.labels[1].customer_part_number == "CUST-002"
+
+    def test_merge_appends_non_matching(self):
+        """Parts not in current job should be appended."""
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].brennan_part_number = "2404-04-02"
+
+        incoming = [
+            LabelData(brennan_part_number="2404-04-02", customer_part_number="CUST-001"),
+            LabelData(brennan_part_number="NEW-PART", customer_part_number="CUST-NEW"),
+        ]
+        updated, appended = p.merge_labels(incoming)
+        assert updated == 1
+        assert appended == 1
+        assert len(p.template.labels) == 2
+        assert p.template.labels[1].brennan_part_number == "NEW-PART"
+
+    def test_merge_does_not_overwrite_with_empty(self):
+        """Merge should not blank out existing data with empty incoming fields."""
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].brennan_part_number = "2404-04-02"
+        p.template.labels[0].customer_part_number = "EXISTING"
+        p.template.labels[0].description = "Existing desc"
+
+        incoming = [
+            LabelData(brennan_part_number="2404-04-02", customer_part_number="UPDATED"),
+        ]
+        updated, _ = p.merge_labels(incoming)
+        assert updated == 1
+        assert p.template.labels[0].customer_part_number == "UPDATED"
+        assert p.template.labels[0].description == "Existing desc"  # not blanked
+
+    def test_merge_marks_dirty(self):
+        p, v = _make_presenter()
+        p.new_template()
+        p.add_label()
+        p.template.labels[0].brennan_part_number = "X-1"
+        p.mark_clean()
+
+        incoming = [LabelData(brennan_part_number="X-1", customer_part_number="C-1")]
+        p.merge_labels(incoming)
+        assert p.is_dirty

@@ -124,7 +124,19 @@ class LabelPresenter:
 
     def set_xref_key(self, xref_key: str) -> None:
         self.template.xref_key = xref_key
+        # Re-resolve customer P/Ns for all labels that have stored xrefs
+        for label in self.template.labels:
+            if label.xrefs:
+                label.customer_part_number = label.resolve_customer_pn(xref_key)
         self._dirty = True
+        self._notify_list_changed()
+
+    def get_available_xref_keys(self) -> set:
+        """Return the set of xref keys that have data across all labels."""
+        keys = set()
+        for label in self.template.labels:
+            keys.update(label.available_xref_keys())
+        return keys
 
     def set_description_mode(self, mode: str) -> None:
         self.template.description_mode = mode
@@ -164,6 +176,7 @@ class LabelPresenter:
                 description=source.description,
                 short_description=source.short_description,
                 image_path=source.image_path,
+                xrefs=dict(source.xrefs),
             )
             self.template.labels.insert(index + 1, copy)
             self._current_index = index + 1
@@ -223,6 +236,7 @@ class LabelPresenter:
                 description=source.description,
                 short_description=source.short_description,
                 image_path=source.image_path,
+                xrefs=dict(source.xrefs),
             ))
         self._dirty = True
         self._notify_list_changed()
@@ -248,6 +262,47 @@ class LabelPresenter:
                 label.short_description = value
             self._dirty = True
             self._notify_preview_update()
+
+    def merge_labels(self, incoming: list) -> tuple:
+        """Merge incoming labels into existing by matching Brennan P/N.
+
+        For matching labels: updates customer_part_number (and description/
+        short_description if the incoming value is non-empty).
+        Non-matching incoming labels are appended.
+
+        Returns (updated_count, appended_count).
+        """
+        existing_by_pn = {}
+        for label in self.template.labels:
+            if label.brennan_part_number:
+                existing_by_pn.setdefault(label.brennan_part_number, []).append(label)
+
+        updated = 0
+        appended = 0
+        for inc in incoming:
+            matches = existing_by_pn.get(inc.brennan_part_number, [])
+            if matches:
+                for existing in matches:
+                    if inc.customer_part_number:
+                        existing.customer_part_number = inc.customer_part_number
+                    if inc.description:
+                        existing.description = inc.description
+                    if inc.short_description:
+                        existing.short_description = inc.short_description
+                    if inc.xrefs:
+                        existing.xrefs.update(inc.xrefs)
+                updated += 1
+            else:
+                self.template.labels.append(inc)
+                appended += 1
+
+        if updated or appended:
+            self._current_index = len(self.template.labels) - 1
+            self._dirty = True
+            self._notify_list_changed()
+            self._notify_label_selected()
+
+        return updated, appended
 
     def replace_labels(self, labels: list) -> None:
         """Replace all labels (for import-replace mode)."""

@@ -134,6 +134,15 @@ class BulkSearchDialog(QDialog):
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             self._results = self.data_source.search_parts(query, mode)
+        except Exception as e:
+            self._results = []
+            QApplication.restoreOverrideCursor()
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "Search Error",
+                f"Search failed:\n{e}\n\nCheck your network connection and try again.",
+            )
+            return
         finally:
             QApplication.restoreOverrideCursor()
         self._populate_table()

@@ -42,12 +42,6 @@ class _ImageDownloadWorker(QObject):
         self._parts = parts
         self._xref_key = xref_key  # captured from main thread before start
 
-    def _resolve_customer_pn(self, part: dict) -> str:
-        xrefs = part.get("xrefs", {})
-        if self._xref_key and xrefs:
-            return xrefs.get(self._xref_key, "")
-        return part.get("customer_part_number", "")
-
     def run(self) -> None:
         try:
             labels = []
@@ -61,12 +55,19 @@ class _ImageDownloadWorker(QObject):
                     except Exception:
                         pass  # skip failed image, label still works
 
+                xrefs = dict(part.get("xrefs", {}))
+                # Resolve customer P/N from xrefs using current manufacturer
+                customer_pn = ""
+                if self._xref_key and xrefs:
+                    customer_pn = xrefs.get(self._xref_key, "")
+
                 label = LabelData(
                     brennan_part_number=part.get("brennan_part_number", ""),
-                    customer_part_number=self._resolve_customer_pn(part),
+                    customer_part_number=customer_pn,
                     description=part.get("description", ""),
                     short_description=part.get("short_description", ""),
                     image_path=image_path,
+                    xrefs=xrefs,
                 )
                 labels.append(label)
                 self.progress.emit(i + 1, total)
@@ -307,10 +308,11 @@ class MainWindow(QMainWindow):
         # Manufacturer cross-reference for Customer P/N
         self._xref_combo = QComboBox()
         self._xref_combo.setToolTip(
-            "Select which manufacturer's part number to show as Customer P/N"
+            "Select which manufacturer's part number to show as Customer P/N.\n"
+            "Only manufacturers with data for the current parts are shown.\n"
+            "Add parts first (via Search or Import), then select the manufacturer."
         )
-        for display_name, key in XREF_MANUFACTURERS.items():
-            self._xref_combo.addItem(display_name, key)
+        self._xref_combo.addItem("(none)", "")
         self._xref_combo.currentIndexChanged.connect(self._on_xref_changed)
         settings_layout.addRow("Customer P/N:", self._xref_combo)
 
@@ -421,6 +423,31 @@ class MainWindow(QMainWindow):
         self._label_list.label_edited.connect(self._on_label_edited)
 
     # --- UI change handlers (guard against signal loops during refresh) ---
+
+    def _refresh_xref_combo(self) -> None:
+        """Rebuild the xref dropdown to show only manufacturers with data."""
+        self._refreshing_ui = True
+        try:
+            current_key = self._xref_combo.currentData() or ""
+            self._xref_combo.clear()
+            self._xref_combo.addItem("(none)", "")
+
+            available_keys = self.label_presenter.get_available_xref_keys()
+            if available_keys:
+                # Build reverse lookup: key -> display name
+                key_to_name = {v: k for k, v in XREF_MANUFACTURERS.items() if v}
+                for key in sorted(available_keys):
+                    display = key_to_name.get(key, key)
+                    self._xref_combo.addItem(display, key)
+
+            # Restore previous selection if still available
+            idx = self._xref_combo.findData(current_key)
+            if idx >= 0:
+                self._xref_combo.setCurrentIndex(idx)
+            else:
+                self._xref_combo.setCurrentIndex(0)
+        finally:
+            self._refreshing_ui = False
 
     def _on_avery_changed(self, template_id: str) -> None:
         if not self._refreshing_ui:
@@ -683,25 +710,51 @@ class MainWindow(QMainWindow):
                         if l.brennan_part_number}
         dupe_count = sum(1 for l in labels if l.brennan_part_number in existing_pns)
 
-        # Ask append vs replace if there are existing labels
+        # Ask append vs replace vs merge if there are existing labels
         if self.label_presenter.template.labels:
             msg_box = QMessageBox(self)
             msg_box.setWindowTitle("Import Labels")
             info = f"Found {len(labels)} part(s) from {source}."
             if dupe_count:
-                info += f"\n{dupe_count} already exist in the current job."
+                info += f"\n{dupe_count} match existing parts in the current job."
             info += f"\n\nYou have {len(self.label_presenter.template.labels)} label(s)."
             msg_box.setText(info)
-            msg_box.setInformativeText("Append to existing labels or replace all?")
+            if dupe_count:
+                msg_box.setInformativeText(
+                    "Merge updates existing labels (e.g. fill in Customer P/Ns).\n"
+                    "Append adds all as new rows. Replace All clears the job first."
+                )
+            else:
+                msg_box.setInformativeText("Append to existing labels or replace all?")
             if summary:
                 msg_box.setDetailedText(summary)
+
+            # Show Merge button when there are matching parts
+            merge_btn = None
+            if dupe_count:
+                merge_btn = msg_box.addButton(
+                    "Merge", QMessageBox.ButtonRole.AcceptRole
+                )
+                msg_box.setDefaultButton(merge_btn)
             append_btn = msg_box.addButton("Append", QMessageBox.ButtonRole.AcceptRole)
             replace_btn = msg_box.addButton("Replace All", QMessageBox.ButtonRole.DestructiveRole)
             msg_box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-            msg_box.setDefaultButton(append_btn)
+            if not merge_btn:
+                msg_box.setDefaultButton(append_btn)
             msg_box.exec()
             clicked = msg_box.clickedButton()
-            if clicked == replace_btn:
+            if clicked == merge_btn:
+                updated, appended = self.label_presenter.merge_labels(labels)
+                parts = []
+                if updated:
+                    parts.append(f"{updated} updated")
+                if appended:
+                    parts.append(f"{appended} added")
+                self._status_label.setText(
+                    f"Merged from {source}: {', '.join(parts)}"
+                )
+                return
+            elif clicked == replace_btn:
                 self.label_presenter.replace_labels(labels)
                 self._status_label.setText(
                     f"Replaced with {len(labels)} labels from {source}"
@@ -786,13 +839,6 @@ class MainWindow(QMainWindow):
             self._qr_base_url.setText(template.qr_base_url)
             self._avery_selector.set_template_id(template.avery_template_id)
 
-            # Restore xref selection
-            idx = self._xref_combo.findData(template.xref_key)
-            if idx >= 0:
-                self._xref_combo.setCurrentIndex(idx)
-            else:
-                self._xref_combo.setCurrentIndex(0)
-
             # Restore description mode
             idx = self._desc_mode_combo.findData(template.description_mode)
             if idx >= 0:
@@ -810,6 +856,15 @@ class MainWindow(QMainWindow):
         finally:
             self._refreshing_ui = False
 
+        # Refresh xref dropdown based on available data, then restore selection
+        self._refresh_xref_combo()
+        if template.xref_key:
+            self._refreshing_ui = True
+            idx = self._xref_combo.findData(template.xref_key)
+            if idx >= 0:
+                self._xref_combo.setCurrentIndex(idx)
+            self._refreshing_ui = False
+
         self._label_list.update_labels(
             template.labels, description_mode=template.description_mode
         )
@@ -820,6 +875,7 @@ class MainWindow(QMainWindow):
         """Called when the label list changes (add/remove/edit)."""
         mode = self.label_presenter.template.description_mode
         self._label_list.update_labels(labels, selected_index, description_mode=mode)
+        self._refresh_xref_combo()
         self._update_status(self.label_presenter.template)
         self._preview.request_update()
 

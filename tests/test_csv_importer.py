@@ -68,6 +68,17 @@ class TestCSVImport:
         assert result.labels[0].customer_part_number == "CUST-001"
         assert result.labels[0].description == "Fitting"
 
+    def test_cross_ref_alias(self, tmp_path):
+        """Cross reference and OEM aliases should map to customer P/N."""
+        for header in ["Cross Reference", "xref", "OEM Part Number", "Their P/N", "Mfg P/N"]:
+            path = str(tmp_path / "test.csv")
+            _write_csv([
+                ["Part Number", header],
+                ["2404-04-02", "CUST-001"],
+            ], path)
+            result = import_labels_from_csv(path)
+            assert result.labels[0].customer_part_number == "CUST-001", f"Failed for header: {header}"
+
     def test_empty_rows_skipped(self, tmp_path):
         path = str(tmp_path / "test.csv")
         _write_csv([

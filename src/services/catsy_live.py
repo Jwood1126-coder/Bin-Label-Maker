@@ -76,7 +76,11 @@ class LiveCatsyService(DataSource):
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json().get("products", [])
+        try:
+            return resp.json().get("products", [])
+        except (ValueError, KeyError) as e:
+            logger.warning("Invalid JSON response from Catsy: %s", e)
+            return []
 
     # ── Public DataSource interface ──────────────────────────────
 
